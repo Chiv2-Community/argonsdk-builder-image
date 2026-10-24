@@ -1,0 +1,11 @@
+{
+  "argon_sdk": {
+    "repository": "https://github.com/Chiv2-Community/ArgonSDK.git",
+    "commit": "d9d9759e40e623a5f7f41d8c58ea8a2988170a26"
+  },
+  "engine_candidate": {
+    "branch": "4.25-plus",
+    "commit": "2d1aaeede6780b14c3ef97272e8a68c3429d8231",
+    "status": "Untested candidate; compatibility must be validated per mod"
+  }
+}

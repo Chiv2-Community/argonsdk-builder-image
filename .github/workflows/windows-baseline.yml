@@ -1,0 +1,53 @@
+name: Windows mod build (experimental)
+on:
+  workflow_dispatch:
+    inputs:
+      mod_config:
+        description: 'Mod descriptor JSON: name, repository, commit, content_path, package_path'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: argonsdk-windows-baseline
+  cancel-in-progress: false
+jobs:
+  cook:
+    # Dedicated, trusted, disposable runner; never attach to pull_request jobs.
+    runs-on: [self-hosted, Windows, X64, argonsdk-builder]
+    timeout-minutes: 240
+    env:
+      UE_ROOT: ${{ vars.UE_ROOT }}
+      MOD_CONFIG_JSON: ${{ inputs.mod_config }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check runner configuration
+        run: |
+          $work = "$env:RUNNER_TEMP/argonsdk-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path $work) { throw 'Build workspace already exists' }
+          New-Item -ItemType Directory -Path $work | Out-Null
+          Set-Content -LiteralPath "$work/mod.json" -Value $env:MOD_CONFIG_JSON -Encoding utf8
+          "BUILD_WORK=$work" >> $env:GITHUB_ENV
+          if (!(Test-Path "$env:UE_ROOT/Engine/Binaries/Win64/UE4Editor-Cmd.exe")) {
+            throw 'Set repository variable UE_ROOT to the provisioned engine root'
+          }
+          python --version
+          if ($LASTEXITCODE -ne 0) { throw 'Python 3.11+ is required' }
+      - run: python scripts/builder.py --mod-config "$env:BUILD_WORK/mod.json" prepare --workspace "$env:BUILD_WORK"
+      - run: python scripts/builder.py build-editor --engine "$env:UE_ROOT" --sdk "$env:BUILD_WORK/ArgonSDK"
+      - run: python scripts/builder.py --mod-config "$env:BUILD_WORK/mod.json" cook --engine "$env:UE_ROOT" --sdk "$env:BUILD_WORK/ArgonSDK"
+      - run: python scripts/builder.py --mod-config "$env:BUILD_WORK/mod.json" package --engine "$env:UE_ROOT" --sdk "$env:BUILD_WORK/ArgonSDK" --output "$env:BUILD_WORK/dist"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: mod-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.BUILD_WORK }}/dist/
+            ${{ env.BUILD_WORK }}/ArgonSDK/Saved/Logs/
+          if-no-files-found: warn
+          retention-days: 7

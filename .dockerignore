@@ -1,0 +1,5 @@
+**
+!Dockerfile
+!build-lock.json
+!scripts/
+!scripts/builder.py

@@ -1,0 +1,32 @@
+name: Experimental Linux SDK image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: argonsdk-linux-image
+  cancel-in-progress: false
+jobs:
+  build:
+    # Provision Docker and authorized registry access outside the workflow.
+    runs-on: [self-hosted, Linux, X64, argonsdk-builder]
+    timeout-minutes: 240
+    env:
+      UE_BASE_IMAGE: ${{ vars.UE_BASE_IMAGE }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Require immutable base image
+        shell: bash
+        run: |
+          if [[ ! "$UE_BASE_IMAGE" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo 'Set UE_BASE_IMAGE to an authorized registry image pinned by SHA-256 digest' >&2
+            exit 1
+          fi
+      - name: Build locally; do not push
+        shell: bash
+        run: |
+          docker build --pull --build-arg "UE_BASE_IMAGE=$UE_BASE_IMAGE" \
+            --target linux-builder \
+            --tag "argonsdk-builder:run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" .
