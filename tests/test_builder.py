@@ -195,6 +195,15 @@ class BuilderTests(unittest.TestCase):
                     builder.cook(self.root, self.root, self.mod)
                 run.assert_not_called()
 
+    def test_cook_refuses_stale_receipt_even_when_output_was_removed(self):
+        self.write_state(self.root)
+        (self.root / builder.COOK_RECEIPT).write_text('{}')
+        with patch.object(builder, 'os', SimpleNamespace(name='nt')):
+            with patch.object(builder, 'run') as run:
+                with self.assertRaisesRegex(ValueError, 'Clean cook required'):
+                    builder.cook(self.root, self.root, self.mod)
+                run.assert_not_called()
+
     def package_fixture(self):
         sdk = self.root / 'sdk'
         source = sdk / 'Content' / self.mod['package_path']

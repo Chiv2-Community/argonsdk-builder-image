@@ -77,7 +77,7 @@ def cook(engine, sdk, mod):
     sdk = Path(sdk).resolve()
     state = workspace.verify_inputs(sdk, mod)
     cooked = sdk / 'Saved/Cooked/WindowsNoEditor'
-    if cooked.exists():
+    if cooked.exists() or (sdk / COOK_RECEIPT).exists():
         raise ValueError(f'Clean cook required; use a fresh SDK checkout: {cooked}')
     command = [tool(engine, 'UE4Editor-Cmd'), sdk / 'TBL.uproject', '-run=Cook',
          '-TargetPlatform=WindowsNoEditor', f'-CookDir={sdk / "Content" / mod["package_path"]}',
