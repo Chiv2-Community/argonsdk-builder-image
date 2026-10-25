@@ -43,7 +43,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Windows project generation failed' }
     foreach ($target in @('UE4Editor', 'ShaderCompileWorker', 'UnrealPak')) {
         & ./Engine/Build/BatchFiles/Build.bat $target Win64 Development -2019 `
-            -NoDebugInfo -NoPDB -MaxParallelActions=2 -WindowsSdkVersion=10.0.19041.0
+            -NoDebugInfo -NoPDB -MaxParallelActions=2 '-WindowsSdkVersion=10.0.19041.0'
         if ($LASTEXITCODE -ne 0) { throw "Engine target failed: $target" }
         Get-PSDrive -PSProvider FileSystem | Select-Object Name, Used, Free
     }
