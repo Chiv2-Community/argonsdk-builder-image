@@ -2,7 +2,7 @@
 
 Reusable ArgonSDK editor environment and Windows content-mod build scaffold.
 
-**Status:** native Linux engine and experimental SDK builds pass. Windows-target
+**Status:** native Windows and Linux engine/SDK builds pass. Windows-target
 cooking, Windows image builds, and game-runtime compatibility remain unvalidated.
 Nothing has been published.
 
@@ -178,6 +178,12 @@ It selects the VS2019 16.4 compiler family and SDK 19041 through UBT XML;
 The effective compiler product version and configuration are retained in the
 job diagnostics. This native baseline is not Windows container or game-runtime
 validation.
+
+The first completed Windows engine/SDK build reached cooker startup but failed
+with `0xC0000135` (missing runtime DLL). The job now includes the runtime
+prerequisite step from upstream `Setup.bat` and an empty-project cooker smoke
+before the SDK/reference stages. Prerequisite installation is not evidence
+that source cooking or Windows container startup works.
 
 ## Experimental Linux image
 

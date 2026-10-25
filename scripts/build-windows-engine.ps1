@@ -64,6 +64,12 @@ try {
         --exclude=Win32 --exclude=HoloLens
     if ($LASTEXITCODE -ne 0) { throw 'Windows dependency download failed' }
     & "$PSScriptRoot/check-windows-dependencies.ps1" -Engine $Engine
+    # Direct GitDependencies invocation bypasses Setup.bat's prerequisite step.
+    $prerequisites = Join-Path $Engine 'Engine/Extras/Redist/en-us/UE4PrereqSetup_x64.exe'
+    if (!(Test-Path $prerequisites)) { throw 'Pinned UE runtime prerequisite installer is missing' }
+    Get-FileHash $prerequisites -Algorithm SHA256
+    $runtime = Start-Process -FilePath $prerequisites -Wait -PassThru -ArgumentList @('/quiet', '/norestart')
+    if ($runtime.ExitCode -notin @(0, 3010, 1638)) { throw "UE runtime prerequisite installation failed: $($runtime.ExitCode)" }
     & ./GenerateProjectFiles.bat -2019
     if ($LASTEXITCODE -ne 0) { throw 'Windows project generation failed' }
     foreach ($target in @('UE4Editor', 'ShaderCompileWorker', 'UnrealPak')) {
