@@ -20,9 +20,11 @@ class WindowsToolchainTests(unittest.TestCase):
 
     def test_installer_and_build_use_locked_configuration(self):
         script = (ROOT / 'scripts/build-windows-engine.ps1').read_text()
-        self.assertIn('Microsoft.VisualStudio.Component.VC.14.24.16.4.x86.x64', script)
+        self.assertIn('Microsoft.VisualStudio.Component.VC.14.24.x86.x64', script)
         self.assertIn('VC/Tools/MSVC/14.24.28314', script)
         self.assertIn('Windows Kits/10/Include/10.0.19041.0/um/Windows.h', script)
         self.assertIn('windows-build-configuration.xml', script)
         self.assertNotIn('-WindowsSdkVersion=', script)
+        self.assertIn('$version.ProductBuildPart', script)
+        self.assertIn('$config.Configuration.WindowsPlatform.CompilerVersion = $compilerVersion', script)
         self.assertLess(script.index('Copy-Item'), script.index('& ./GenerateProjectFiles.bat'))

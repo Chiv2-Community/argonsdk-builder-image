@@ -169,6 +169,16 @@ accessing licensed sources. Engine source access uses the `UE_GITHUB_TOKEN`
 Actions secret. A passing host preflight or native Windows workflow is not
 container build/cook validation. Publication remains blocked.
 
+`windows-engine.yml` builds the pinned engine, then invokes the generic
+prepare/build-editor/cook/package path with an external `MOD_DESCRIPTOR_JSON`
+Actions secret. No workload descriptor or source is baked into the image or
+repository. The job uploads diagnostics, not engine binaries or cooked assets.
+It selects the VS2019 16.4 compiler family and SDK 19041 through UBT XML;
+`-2019` alone does not select the compiler version in this UE revision.
+The effective compiler product version and configuration are retained in the
+job diagnostics. This native baseline is not Windows container or game-runtime
+validation.
+
 ## Experimental Linux image
 
 `Dockerfile` layers ArgonSDK onto an existing, authorized native Linux UE

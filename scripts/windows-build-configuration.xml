@@ -7,5 +7,7 @@
   </WindowsPlatform>
   <BuildConfiguration>
     <MaxParallelActions>2</MaxParallelActions>
+    <bDisableDebugInfo>true</bDisableDebugInfo>
+    <bUsePDBFiles>false</bUsePDBFiles>
   </BuildConfiguration>
 </Configuration>

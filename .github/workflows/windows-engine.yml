@@ -8,6 +8,7 @@ on:
       - scripts/build-windows-engine.ps1
       - scripts/check-windows-dependencies.ps1
       - scripts/windows-build-configuration.xml
+      - scripts/validate-windows-builder.ps1
 permissions:
   contents: read
 concurrency:
@@ -47,6 +48,14 @@ jobs:
           if (Test-Path D:/ue) { throw 'Short engine checkout path already exists' }
           Move-Item -LiteralPath ./ue -Destination D:/ue
           ./builder/scripts/build-windows-engine.ps1 -Engine D:/ue
+      - name: Cook and package external source on Windows
+        env:
+          MOD_DESCRIPTOR_JSON: ${{ secrets.MOD_DESCRIPTOR_JSON }}
+        run: |
+          if (!$env:MOD_DESCRIPTOR_JSON) { throw 'An external MOD_DESCRIPTOR_JSON secret is required for source-cook validation' }
+          $descriptor = Join-Path $env:RUNNER_TEMP 'mod-descriptor.json'
+          [IO.File]::WriteAllText($descriptor, $env:MOD_DESCRIPTOR_JSON)
+          ./builder/scripts/validate-windows-builder.ps1 -Engine D:/ue -Workspace D:/argon-validation -Descriptor $descriptor
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -56,5 +65,8 @@ jobs:
             D:/ue/.builder-transport.json
             D:/ue/Engine/Programs/UnrealBuildTool/Log*.txt
             D:/ue/Engine/Saved/UnrealBuildTool/BuildConfiguration.xml
+            D:/argon-validation/ArgonSDK/Saved/Logs/*.log
+            ${{ runner.temp }}/windows-builder-validation.json
+            ${{ runner.temp }}/dd_setup_*_errors.log
           if-no-files-found: warn
           retention-days: 7

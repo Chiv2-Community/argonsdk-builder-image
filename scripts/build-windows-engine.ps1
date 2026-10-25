@@ -22,7 +22,7 @@ if (!$vs2019 -or !(Test-Path (Join-Path $vs2019 "$compilerDirectory/bin/Hostx64/
     $install = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @(
         '--quiet', '--wait', '--norestart', '--nocache',
         '--installPath', 'C:\VS2019',
-        '--add', 'Microsoft.VisualStudio.Component.VC.14.24.16.4.x86.x64',
+        '--add', 'Microsoft.VisualStudio.Component.VC.14.24.x86.x64',
         '--add', 'Microsoft.VisualStudio.Component.Windows10SDK.19041'
     )
     if ($install.ExitCode -notin @(0, 3010)) { throw "VS2019 installation failed: $($install.ExitCode)" }
@@ -31,6 +31,10 @@ $vs2019 = & $vswhere -products '*' -version '[16.0,17.0)' -latest -property inst
 if (!$vs2019 -or !(Test-Path (Join-Path $vs2019 "$compilerDirectory/bin/Hostx64/x64/cl.exe")) -or !(Test-Path $sdkInclude)) {
     throw 'Required VS2019 16.4 compiler or Windows SDK 19041 is missing'
 }
+$compiler = Get-Item (Join-Path $vs2019 "$compilerDirectory/bin/Hostx64/x64/cl.exe")
+$version = $compiler.VersionInfo
+$compilerVersion = "$($version.ProductMajorPart).$($version.ProductMinorPart).$($version.ProductBuildPart)"
+if ($compilerVersion -notmatch '^14\.24\.[0-9]+$') { throw "Unexpected compiler product version: $compilerVersion" }
 # Later user config files override Engine/Saved in this UE revision.
 foreach ($base in @($env:APPDATA, [Environment]::GetFolderPath('MyDocuments'))) {
     if ($base -and (Test-Path (Join-Path $base 'Unreal Engine/UnrealBuildTool/BuildConfiguration.xml'))) {
@@ -40,6 +44,11 @@ foreach ($base in @($env:APPDATA, [Environment]::GetFolderPath('MyDocuments'))) 
 $configDir = Join-Path $Engine 'Engine/Saved/UnrealBuildTool'
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 Copy-Item "$PSScriptRoot/windows-build-configuration.xml" "$configDir/BuildConfiguration.xml"
+# Serviced 16.4 installers keep the directory name but update cl.exe's product
+# version. UBT selects by that product version, not by the directory name.
+[xml]$config = Get-Content "$configDir/BuildConfiguration.xml" -Raw
+$config.Configuration.WindowsPlatform.CompilerVersion = $compilerVersion
+$config.Save((Join-Path $configDir 'BuildConfiguration.xml'))
 Get-Content "$configDir/BuildConfiguration.xml"
 Push-Location $Engine
 try {
