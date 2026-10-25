@@ -7,6 +7,7 @@ on:
       - .github/workflows/windows-engine.yml
       - scripts/build-windows-engine.ps1
       - scripts/check-windows-dependencies.ps1
+      - scripts/windows-build-configuration.xml
 permissions:
   contents: read
 concurrency:
@@ -54,5 +55,6 @@ jobs:
             D:/ue/.builder-engine.json
             D:/ue/.builder-transport.json
             D:/ue/Engine/Programs/UnrealBuildTool/Log*.txt
+            D:/ue/Engine/Saved/UnrealBuildTool/BuildConfiguration.xml
           if-no-files-found: warn
           retention-days: 7
