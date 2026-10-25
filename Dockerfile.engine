@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+# Authorized Linux build environment with user ue, Mono and native UE dependencies.
+ARG ENGINE_BUILD_BASE
+FROM ${ENGINE_BUILD_BASE}
+USER root
+RUN mkdir -p /opt/unreal-engine && chown ue:ue /opt/unreal-engine
+COPY --chown=ue:ue source.tar /opt/engine-input/source.tar
+COPY --chown=ue:ue build-lock.json engine_tools.py build-engine.sh /opt/engine-input/
+COPY sync-mono-trust.cs /opt/engine-input/
+RUN mcs -r:Mono.Security -out:/opt/engine-input/sync-mono-trust.exe /opt/engine-input/sync-mono-trust.cs && \
+    mono /opt/engine-input/sync-mono-trust.exe
+USER ue
+WORKDIR /opt/unreal-engine
+ENV UE_USE_SYSTEM_MONO=1
+RUN tar -xf /opt/engine-input/source.tar && \
+    python3 /opt/engine-input/engine_tools.py https-transport --engine .
+RUN --mount=type=cache,id=argon-425plus-gitdeps,target=/home/ue/.cache/ue-gitdeps,uid=1001,gid=1001,sharing=locked \
+    bash /opt/engine-input/build-engine.sh setup
+RUN bash /opt/engine-input/build-engine.sh compile && \
+    python3 /opt/engine-input/engine_tools.py receipt --engine . \
+      --lock /opt/engine-input/build-lock.json --platform Linux --archive /opt/engine-input/source.tar
+ENV UE_ROOT=/opt/unreal-engine
+LABEL com.chiv2-community.ue.branch="4.25-plus"
+ENV PATH=/opt/unreal-engine/Engine/Binaries/Linux:${PATH}
+WORKDIR /home/ue
+ENTRYPOINT []
+CMD ["/bin/bash"]

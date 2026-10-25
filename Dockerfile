@@ -5,8 +5,11 @@ FROM ${UE_BASE_IMAGE} AS sdk-source
 USER ue
 WORKDIR /home/ue
 COPY --chown=ue:ue build-lock.json /opt/argonsdk-builder/build-lock.json
-COPY --chown=ue:ue scripts/builder.py /opt/argonsdk-builder/scripts/builder.py
+COPY --chown=ue:ue scripts/ /opt/argonsdk-builder/scripts/
+RUN python3 /opt/argonsdk-builder/scripts/engine_tools.py check --engine "${UE_ROOT}" \
+    --lock /opt/argonsdk-builder/build-lock.json --platform Linux > /home/ue/engine-validation.json
 RUN python3 /opt/argonsdk-builder/scripts/builder.py prepare --workspace /home/ue/argon-work
+LABEL com.chiv2-community.ue.branch="4.25-plus"
 ENV ARGON_SDK_ROOT=/home/ue/argon-work/ArgonSDK
 
 # Experimental: SDK plugins may require Linux portability fixes.

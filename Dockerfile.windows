@@ -1,0 +1,21 @@
+# escape=`
+# Authorized Windows Server Core UE 4.25-plus build base, pinned by digest.
+# Requires Python 3.11+, Git, Visual Studio C++ tools, Windows SDK and UE_ROOT.
+ARG UE_BASE_IMAGE
+FROM ${UE_BASE_IMAGE}
+SHELL ["cmd", "/S", "/C"]
+USER ContainerAdministrator
+WORKDIR C:/argon-builder
+COPY build-lock.json C:/argon-builder/build-lock.json
+COPY scripts/ C:/argon-builder/scripts/
+RUN mkdir C:\argon-template && `
+    icacls C:\argon-template /grant "*S-1-5-93-2-2:(OI)(CI)M" && `
+    icacls C:\argon-builder /grant "*S-1-5-93-2-2:(OI)(CI)RX" /T
+USER ContainerUser
+RUN python scripts/engine_tools.py check --engine "%UE_ROOT%" --lock build-lock.json --platform Win64
+RUN python scripts/builder.py prepare --workspace C:/argon-template
+RUN python scripts/builder.py build-editor --engine "%UE_ROOT%" --sdk C:/argon-template/ArgonSDK
+ENV ARGON_SDK_ROOT=C:/argon-template/ArgonSDK
+LABEL com.chiv2-community.ue.branch="4.25-plus"
+ENTRYPOINT ["python", "C:/argon-builder/scripts/builder.py"]
+CMD ["--help"]

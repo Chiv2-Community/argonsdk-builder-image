@@ -1,5 +1,6 @@
 **
 !Dockerfile
+!Dockerfile.windows
 !build-lock.json
 !scripts/
-!scripts/builder.py
+!scripts/*.py

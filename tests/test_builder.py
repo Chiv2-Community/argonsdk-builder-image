@@ -2,14 +2,17 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
 SPEC = importlib.util.spec_from_file_location('builder', ROOT / 'scripts/builder.py')
 builder = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(builder)
+from fixtures import engine_fixture
 
 
 class BuilderTests(unittest.TestCase):
@@ -27,7 +30,7 @@ class BuilderTests(unittest.TestCase):
         }
 
     def test_lock_uses_full_commits(self):
-        for key in ('argon_sdk', 'engine_candidate'):
+        for key in ('argon_sdk', 'engine'):
             self.assertRegex(self.lock[key]['commit'], '^[0-9a-f]{40}$')
 
     def test_rejects_moving_ref(self):
@@ -81,15 +84,20 @@ class BuilderTests(unittest.TestCase):
     def test_prepare_copies_configured_content(self):
         def checkout(repo, commit, dest):
             (dest / 'Content').mkdir(parents=True)
-            if dest.name == 'mod-source':
+            if dest.name == '0':
                 (dest / 'Content/Test.uasset').write_bytes(b'asset')
         with patch.object(builder, 'checkout', side_effect=checkout):
-            builder.prepare(self.lock, self.root, self.mod)
+            with patch.object(builder.workspace, 'verified_sdk', return_value={'commit': 'test'}):
+                builder.prepare(self.lock, self.root, self.mod)
         self.assertTrue((self.root / 'ArgonSDK/Content/Mods/AgMods/ExampleMod/Test.uasset').exists())
 
     def test_prepare_without_mod_only_checks_out_sdk(self):
         with patch.object(builder, 'checkout') as checkout:
-            builder.prepare(self.lock, self.root)
+            def make_sdk(repo, commit, dest):
+                dest.mkdir()
+            checkout.side_effect = make_sdk
+            with patch.object(builder.workspace, 'verified_sdk', return_value={'commit': 'test'}):
+                builder.prepare(self.lock, self.root)
         self.assertEqual(checkout.call_count, 1)
         self.assertEqual(checkout.call_args.args[0], self.lock['argon_sdk']['repository'])
 
@@ -126,24 +134,60 @@ class BuilderTests(unittest.TestCase):
         with patch.object(builder, 'os', SimpleNamespace(name='posix')):
             for function, args in [
                 (builder.cook, [self.root, self.root, self.mod]),
-                (builder.build_editor, [self.root, self.root]),
+                (builder.build_editor, [self.root, self.root, self.lock]),
                 (builder.package, [self.root, self.root, self.root, self.lock, self.mod]),
             ]:
                 with self.assertRaises(ValueError):
                     function(*args)
 
     def test_cook_disables_nativization_and_is_not_iterative(self):
+        engine, sdk, _ = self.package_fixture()
+        cooked = sdk / 'Saved/Cooked/WindowsNoEditor'
+        # Simulate a real cook creating output only after invocation.
+        saved = sdk / 'Saved/fixture'
+        cooked.rename(saved)
+        def fake_cook(args):
+            saved.rename(cooked)
         with patch.object(builder, 'os', SimpleNamespace(name='nt')):
-            with patch.object(builder, 'run') as run:
-                builder.cook(self.root, self.root, self.mod)
+            with patch.object(builder, 'run', side_effect=fake_cook) as run:
+                builder.cook(engine, sdk, self.mod)
         args = [str(arg) for arg in run.call_args.args[0]]
         self.assertIn('-TargetPlatform=WindowsNoEditor', args)
         self.assertTrue(any('BlueprintNativizationMethod=Disabled' in arg for arg in args))
         self.assertTrue(any(arg.startswith('-CookDir=') for arg in args))
-        self.assertIn(f'-CookDir={self.root / "Content" / self.mod["package_path"]}', args)
+        self.assertIn(f'-CookDir={sdk / "Content" / self.mod["package_path"]}', args)
         self.assertNotIn('-iterate', args)
+        receipt = json.loads((sdk / builder.COOK_RECEIPT).read_text())
+        self.assertEqual(receipt['verification'], 'cook_command_returned_zero')
+        self.assertEqual(len(receipt['files']), 2)
+
+    def test_zero_exit_without_cooked_assets_does_not_create_receipt(self):
+        self.write_state(self.root)
+        engine_fixture(self.root, self.lock['engine'])
+        with patch.object(builder, 'os', SimpleNamespace(name='nt')):
+            with patch.object(builder, 'run'):
+                with self.assertRaises(ValueError):
+                    builder.cook(self.root, self.root, self.mod)
+        self.assertFalse((self.root / builder.COOK_RECEIPT).exists())
+
+    def test_package_rejects_modified_cook_outputs_or_engine(self):
+        engine, sdk, output = self.package_fixture()
+        receipt = {'engine': builder.workspace.engine_identity(engine, self.lock['engine'], 'Win64'),
+                   'files': [{'path': rel, 'sha256': builder.file_hash(path)}
+                             for path, rel in builder.cooked_inventory(sdk, self.mod)]}
+        for changed in ['files', 'engine']:
+            with self.subTest(changed=changed):
+                invalid = dict(receipt, **{changed: [] if changed == 'files' else {}})
+                builder.workspace.write_json(sdk / builder.COOK_RECEIPT, invalid)
+                with patch.object(builder, 'os', SimpleNamespace(name='nt')):
+                    with patch.object(builder, 'run') as run:
+                        with self.assertRaisesRegex(ValueError, 'Cook receipt'):
+                            builder.package(engine, sdk, output, self.lock, self.mod)
+                        run.assert_not_called()
+                self.assertFalse(output.exists())
 
     def test_cook_refuses_previous_output(self):
+        self.write_state(self.root)
         (self.root / 'Saved/Cooked/WindowsNoEditor').mkdir(parents=True)
         with patch.object(builder, 'os', SimpleNamespace(name='nt')):
             with patch.object(builder, 'run') as run:
@@ -160,13 +204,24 @@ class BuilderTests(unittest.TestCase):
         (source / 'Test.uasset').write_bytes(b'source')
         (cooked / 'Test.uasset').write_bytes(b'cooked')
         (cooked / 'Test.uexp').write_bytes(b'bytecode')
-        engine = self.root / 'engine'
-        (engine / 'Engine/Build').mkdir(parents=True)
-        (engine / 'Engine/Build/Build.version').write_text('{"MajorVersion":4,"MinorVersion":25}')
+        engine = engine_fixture(self.root / 'engine', self.lock['engine'])
+        self.write_state(sdk)
         return engine, sdk, self.root / 'dist'
+
+    def write_state(self, sdk):
+        builder.workspace.write_json(sdk / builder.workspace.STATE, {
+            'mod': self.mod, 'lock': self.lock, 'inputs': []
+        })
 
     def test_package_manifest_and_mount(self):
         engine, sdk, output = self.package_fixture()
+        receipt = {
+            'verification': 'cook_command_returned_zero',
+            'engine': builder.workspace.engine_identity(engine, self.lock['engine'], 'Win64'),
+            'files': [{'path': rel, 'sha256': builder.file_hash(path)}
+                      for path, rel in builder.cooked_inventory(sdk, self.mod)],
+        }
+        builder.workspace.write_json(sdk / builder.COOK_RECEIPT, receipt)
 
         def fake_run(args, log):
             Path(log).write_text('fake tool output')
@@ -182,7 +237,8 @@ class BuilderTests(unittest.TestCase):
         self.assertTrue((output / 'ExampleMod.pak').exists())
         self.assertTrue((output / 'ExampleMod.pak.sha256').exists())
         manifest = json.loads((output / 'manifest.json').read_text())
-        self.assertEqual(manifest['mod'], self.mod)
+        self.assertEqual(manifest['prepared_inputs']['mod'], self.mod)
+        self.assertEqual(manifest['cook'], receipt)
         self.assertEqual(len(manifest['files']), 2)
 
     def test_package_rejects_missing_asset(self):

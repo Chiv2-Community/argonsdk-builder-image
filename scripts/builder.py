@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Pinned SDK preparation and Windows content cooking. No publication commands."""
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
+import workspace
+import engine_tools
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_SUFFIXES = {'.uasset', '.umap', '.uexp', '.ubulk'}
+COOK_RECEIPT = '.builder-cook.json'
 
 
 def run(args, log=None):
@@ -26,33 +27,16 @@ def run(args, log=None):
 
 def lockfile(path):
     data = json.loads(Path(path).read_text(encoding='utf-8'))
-    for key in ('argon_sdk', 'engine_candidate'):
+    for key in ('argon_sdk', 'engine'):
         if not re.fullmatch('[0-9a-f]{40}', data[key]['commit']):
             raise ValueError(f'Invalid {key} commit')
+    engine_tools.validate_pin(data['engine'])
     return data
-
-
-def relative_path(value):
-    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_./-]+', value):
-        raise ValueError('Content paths must be relative forward-slash paths')
-    if any(part in ('', '.', '..') for part in value.split('/')):
-        raise ValueError('Content paths must not contain empty, dot, or parent segments')
-    return value
 
 
 def mod_config(path):
     data = json.loads(Path(path).read_text(encoding='utf-8-sig'))
-    if not re.fullmatch('[A-Za-z0-9_][A-Za-z0-9_.-]*', data['name']):
-        raise ValueError('Invalid mod artifact name')
-    if not re.fullmatch('[0-9a-f]{40}', data['commit']):
-        raise ValueError('Mod commit must be a full SHA')
-    if not re.fullmatch(r'https://[^\s]+', data['repository']):
-        raise ValueError('Mod repository must be an HTTPS URL')
-    data['content_path'] = relative_path(data.get('content_path', 'Content'))
-    package = relative_path(data['package_path'])
-    if not package.startswith('Mods/') or not re.fullmatch(r'[A-Za-z0-9_/]+', package):
-        raise ValueError('Package path must name a mod directory under Mods/')
-    return data
+    return workspace.descriptor(data)
 
 
 def checkout(repo, commit, dest):
@@ -68,24 +52,8 @@ def checkout(repo, commit, dest):
     run(['git', '-C', dest, 'submodule', 'update', '--init', '--recursive'])
 
 
-def prepare(lock, workspace, mod=None):
-    workspace = Path(workspace).resolve()
-    sdk, source = workspace / 'ArgonSDK', workspace / 'mod-source'
-    if sdk.exists() or (mod is not None and source.exists()):
-        raise ValueError('Use a fresh workspace; existing source directories are never replaced')
-    checkout(lock['argon_sdk']['repository'], lock['argon_sdk']['commit'], sdk)
-    if mod is None:
-        return
-    checkout(mod['repository'], mod['commit'], source)
-    content = (source / mod['content_path']).resolve()
-    if not content.is_relative_to(source) or not content.is_dir():
-        raise ValueError('Mod content must be a directory inside its checkout')
-    target = sdk / 'Content' / mod['package_path']
-    if not target.resolve().is_relative_to((sdk / 'Content').resolve()):
-        raise ValueError('Mod destination escapes SDK content')
-    if target.exists():
-        raise ValueError(f'Refusing to replace SDK content: {target}')
-    shutil.copytree(content, target)
+def prepare(lock, directory, mod=None, template=None, local_source=None, image_reference=None):
+    return workspace.prepare(lock, directory, mod, checkout, template, local_source, image_reference)
 
 
 def tool(engine, name):
@@ -95,9 +63,10 @@ def tool(engine, name):
     return engine / 'Engine/Binaries/Win64' / f'{name}.exe'
 
 
-def build_editor(engine, sdk):
+def build_editor(engine, sdk, lock):
     if os.name != 'nt':
         raise ValueError('Windows editor baseline requires a Windows host')
+    workspace.engine_identity(engine, lock['engine'], 'Win64')
     run([tool(engine, 'build'), 'TBLEditor', 'Win64', 'Development',
          f'-Project={Path(sdk).resolve() / "TBL.uproject"}', '-WaitMutex', '-NoHotReload'])
 
@@ -106,21 +75,30 @@ def cook(engine, sdk, mod):
     if os.name != 'nt':
         raise ValueError('Windows cooking is not implemented on native Linux')
     sdk = Path(sdk).resolve()
+    state = workspace.verify_inputs(sdk, mod)
     cooked = sdk / 'Saved/Cooked/WindowsNoEditor'
     if cooked.exists():
         raise ValueError(f'Clean cook required; use a fresh SDK checkout: {cooked}')
-    run([tool(engine, 'UE4Editor-Cmd'), sdk / 'TBL.uproject', '-run=Cook',
+    command = [tool(engine, 'UE4Editor-Cmd'), sdk / 'TBL.uproject', '-run=Cook',
          '-TargetPlatform=WindowsNoEditor', f'-CookDir={sdk / "Content" / mod["package_path"]}',
          '-unattended', '-nop4', '-UTF8Output', '-NullRHI',
-         '-ini:Game:[/Script/UnrealEd.ProjectPackagingSettings]:BlueprintNativizationMethod=Disabled'])
+         '-ini:Game:[/Script/UnrealEd.ProjectPackagingSettings]:BlueprintNativizationMethod=Disabled']
+    engine_info = workspace.engine_identity(engine, state['lock']['engine'], 'Win64')
+    run(command)
+    workspace.verify_inputs(sdk, mod)
+    entries = cooked_inventory(sdk, mod)
+    workspace.write_json(sdk / COOK_RECEIPT, {
+        'verification': 'cook_command_returned_zero',
+        'command': [str(arg) for arg in command], 'engine': engine_info,
+        'files': [{'path': rel, 'sha256': file_hash(path)} for path, rel in entries],
+        'editor_sha256': file_hash(tool(engine, 'UE4Editor-Cmd')) if tool(engine, 'UE4Editor-Cmd').is_file() else None,
+    })
 
 
 def inventory(root):
     root = Path(root).resolve()
     entries = []
-    for path in sorted(root.rglob('*')):
-        if path.is_symlink():
-            raise ValueError(f'Symlink not allowed in package input: {path}')
+    for path in workspace.checked_tree(root):
         if not path.is_file():
             continue
         rel = path.relative_to(root)
@@ -135,21 +113,33 @@ def inventory(root):
 
 
 def file_hash(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+    return workspace.file_hash(path)
+
+
+def cooked_inventory(sdk, mod):
+    source = workspace.directory_within(sdk, 'Content/' + mod['package_path'])
+    entries = inventory(workspace.directory_within(sdk, 'Saved/Cooked/WindowsNoEditor/TBL/Content/' + mod['package_path']))
+    source_packages = {p.relative_to(source).as_posix() for p in workspace.checked_tree(source)
+                       if p.suffix in {'.uasset', '.umap'}}
+    cooked_packages = {rel for _, rel in entries if Path(rel).suffix in {'.uasset', '.umap'}}
+    if not source_packages or source_packages != cooked_packages:
+        raise ValueError('Source/cooked package inventory mismatch; refusing incomplete PAK')
+    return entries
 
 
 def package(engine, sdk, output, lock, mod):
     if os.name != 'nt':
         raise ValueError('Packaging baseline requires Windows UnrealPak')
     sdk, output = Path(sdk).resolve(), Path(output).resolve()
-    source = sdk / 'Content' / mod['package_path']
-    entries = inventory(sdk / 'Saved/Cooked/WindowsNoEditor/TBL/Content' / mod['package_path'])
-    source_packages = {p.relative_to(source).as_posix() for p in source.rglob('*')
-                       if p.suffix in {'.uasset', '.umap'}}
-    cooked_packages = {rel for _, rel in entries if Path(rel).suffix in {'.uasset', '.umap'}}
-    if not source_packages or source_packages != cooked_packages:
-        raise ValueError('Source/cooked package inventory mismatch; refusing incomplete PAK')
+    state = workspace.verify_inputs(sdk, mod, lock)
+    engine_info = workspace.engine_identity(engine, lock['engine'], 'Win64')
+    entries = cooked_inventory(sdk, mod)
+    files = [{'path': rel, 'sha256': file_hash(path)} for path, rel in entries]
+    receipt_path = sdk / COOK_RECEIPT
+    cook_receipt = (json.loads(receipt_path.read_text(encoding='utf-8')) if receipt_path.exists()
+                    else {'verification': 'no_cook_receipt'})
+    if receipt_path.exists() and (cook_receipt['engine'] != engine_info or cook_receipt['files'] != files):
+        raise ValueError('Cook receipt does not match the current engine or cooked files')
     if output.exists():
         raise ValueError('Use a new output directory; existing artifacts are never replaced')
     output.mkdir(parents=True)
@@ -163,13 +153,16 @@ def package(engine, sdk, output, lock, mod):
     digest = file_hash(pak)
     (output / f'{pak.name}.sha256').write_text(f'{digest}  {pak.name}\n', encoding='utf-8')
     manifest = {
-        'inputs': lock,
-        'mod': mod,
+        'schema_version': 1,
+        'prepared_inputs': state,
         'engine_path': str(Path(engine).resolve()),
-        'engine_build_version': json.loads((Path(engine) / 'Engine/Build/Build.version').read_text(encoding='utf-8')),
+        'engine': engine_info,
+        'cook': cook_receipt,
+        'tool_hashes': {name: file_hash(tool(engine, name)) if tool(engine, name).is_file() else None
+                        for name in ('UE4Editor-Cmd', 'UnrealPak')},
         'target': 'WindowsNoEditor',
         'pak_sha256': digest,
-        'files': [{'path': rel, 'sha256': file_hash(path)} for path, rel in entries],
+        'files': files,
     }
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
 
@@ -180,8 +173,14 @@ def main():
     parser.add_argument('--mod-config', type=Path, help='Mod source and package descriptor JSON')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('validate-lock')
+    commands.add_parser('validate-mod')
     prep = commands.add_parser('prepare')
     prep.add_argument('--workspace', required=True, type=Path)
+    prep.add_argument('--sdk-template', type=Path, default=os.environ.get('ARGON_SDK_ROOT'),
+                      help='Copy an image SDK into the job workspace instead of downloading it')
+    prep.add_argument('--mod-source', type=Path, help='Read-only local mod checkout/content mount')
+    prep.add_argument('--image-reference', default=os.environ.get('BUILDER_IMAGE_REFERENCE'),
+                      help='Caller-supplied image reference pinned by digest (not runtime attested)')
     for name in ('build-editor', 'cook', 'package'):
         sub = commands.add_parser(name)
         sub.add_argument('--engine', required=True, type=Path)
@@ -191,12 +190,12 @@ def main():
     args = parser.parse_args()
     lock = lockfile(args.lock)
     mod = mod_config(args.mod_config) if args.mod_config else None
-    if args.command in ('cook', 'package') and mod is None:
-        parser.error('--mod-config is required for cook and package')
+    if args.command in ('cook', 'package', 'validate-mod') and mod is None:
+        parser.error('--mod-config is required for this command')
     if args.command == 'prepare':
-        prepare(lock, args.workspace, mod)
+        prepare(lock, args.workspace, mod, args.sdk_template, args.mod_source, args.image_reference)
     elif args.command == 'build-editor':
-        build_editor(args.engine, args.sdk)
+        build_editor(args.engine, args.sdk, lock)
     elif args.command == 'cook':
         cook(args.engine, args.sdk, mod)
     elif args.command == 'package':
