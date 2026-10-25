@@ -1,7 +1,8 @@
 # Linux Windows-cooking investigation
 
 Investigation started 2026-10-24. The pinned native Linux engine image built
-successfully on 2026-10-25. No SDK build or Windows-target cook has succeeded yet.
+successfully on 2026-10-25. An isolated SDK build succeeded with the RHI build-rule
+patch below. No Windows-target cook has succeeded yet.
 
 ## Verified observations
 
@@ -17,11 +18,25 @@ successfully on 2026-10-25. No SDK build or Windows-target cook has succeeded ye
 - The built engine passed its version/tool-hash receipt check in a nonroot,
   read-only, network-disabled container. `ldd` found no missing runtime libraries
   for UE4Editor, ShaderCompileWorker, or UnrealPak.
+- Native UnrealPak passed a compressed binary-payload create/test/list/extract
+  roundtrip in that isolated runtime. Read-only engine use requires per-job
+  writable mounts at `Engine/DerivedDataCache` and
+  `Engine/Programs/UnrealPak/Saved`; the program's DDC graph did not honor the
+  attempted `UE-LocalDataCachePath` override. This validates packaging tools,
+  not cooked-asset compatibility. Extraction syntax is `-Extract <directory>`,
+  not `-Extract=<directory>`.
 - A bounded empty-project commandlet reached target-platform discovery but
   rejected `-TargetPlatform=WindowsNoEditor` with exit 1: `Invalid target platform
   specified (WindowsNoEditor)`. The available platforms were Android and Linux
   variants only. This is an observed stock-engine blocker, not a claim that a
   patched native backend is impossible. The probe cooked no mod assets.
+- The first SDK build compiled the TBL sources but failed linking
+  `libUE4Editor-TBL.so`: undefined `GMaxRHIFeatureLevel`. Its pinned build rules
+  omit the direct RHI dependency used by an inline Engine helper. A separate
+  experimental image built successfully after adding only that dependency;
+  no classes were removed and the pinned source checkout remains unchanged.
+  This patch is not yet part
+  of the reusable builder or an accepted SDK identity.
 - The current SDK image Dockerfile builds only a Linux editor. Its cook/package
   commands still require Windows. There is no implemented Wine backend.
 - Storage was reclaimed by the user: about 349 GiB was available when the first

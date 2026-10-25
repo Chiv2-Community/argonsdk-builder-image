@@ -1,0 +1,28 @@
+name: Hosted Windows container preflight
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/image-consumer-contract]
+    paths:
+      - .github/workflows/windows-host.yml
+      - scripts/windows-host-preflight.ps1
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check Windows container build host
+        shell: pwsh
+        run: ./scripts/windows-host-preflight.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: windows-host-preflight
+          path: ${{ runner.temp }}/argon-windows-host.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -160,9 +160,12 @@ mounts. Preparation defaults to copying the image's `ARGON_SDK_ROOT` template.
 Mount input sources read-only. Do not mount host engine directories or reuse
 workspaces between jobs.
 
-This Dockerfile has not been built or runtime-validated: no compatible Windows
-Docker host or registered Windows runner is currently available. The native
-Windows workflow is not container validation. Publication remains blocked.
+This Dockerfile has not been built or runtime-validated. GitHub's hosted
+`windows-2022` runner is the selected build host; `windows-host.yml` tests its
+Docker/container runtime, compiler inventory, and available storage without
+accessing licensed sources. Engine source access uses the `UE_GITHUB_TOKEN`
+Actions secret. A passing host preflight or native Windows workflow is not
+container build/cook validation. Publication remains blocked.
 
 ## Experimental Linux image
 
@@ -196,6 +199,8 @@ A private source repository alone does not make an image private.
 The selected publication target is private GitHub Container Registry (GHCR),
 not Forgejo. Publishing remains blocked on backend/runtime validation, approved
 licensed recipients, and verified private package/download permissions.
+See [publication gates](docs/publication.md) for candidate, access-test, and
+release-promotion requirements.
 
 ### Build the Linux engine locally
 
