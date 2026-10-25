@@ -16,7 +16,8 @@ ENV ARGON_SDK_ROOT=/home/ue/argon-work/ArgonSDK
 # This builds a Linux editor, NOT a Windows cooker or a Windows PAK.
 FROM sdk-source AS linux-builder
 RUN "${UE_ROOT}/Engine/Build/BatchFiles/Linux/Build.sh" \
-    TBLEditor Linux Development "${ARGON_SDK_ROOT}/TBL.uproject" -WaitMutex -NoHotReload
+    TBLEditor Linux Development "${ARGON_SDK_ROOT}/TBL.uproject" -WaitMutex -NoHotReload \
+    -NoDebugInfo -MaxParallelActions=8
 WORKDIR /home/ue
 ENTRYPOINT []
 CMD ["/bin/bash"]

@@ -193,6 +193,9 @@ the image in the runner's local Docker store; it never pushes it.
 Do not publish engine/SDK images to a public registry. Review Epic's license,
 SDK/game asset rights, and actual registry download access before distribution.
 A private source repository alone does not make an image private.
+The selected publication target is private GitHub Container Registry (GHCR),
+not Forgejo. Publishing remains blocked on backend/runtime validation, approved
+licensed recipients, and verified private package/download permissions.
 
 ### Build the Linux engine locally
 
