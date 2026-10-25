@@ -155,7 +155,7 @@ class BuilderTests(unittest.TestCase):
         self.assertIn('-TargetPlatform=WindowsNoEditor', args)
         self.assertTrue(any('BlueprintNativizationMethod=Disabled' in arg for arg in args))
         self.assertTrue(any(arg.startswith('-CookDir=') for arg in args))
-        self.assertIn(f'-CookDir={sdk / "Content" / self.mod["package_path"]}', args)
+        self.assertIn(f'-CookDir={sdk.resolve() / "Content" / self.mod["package_path"]}', args)
         self.assertNotIn('-iterate', args)
         receipt = json.loads((sdk / builder.COOK_RECEIPT).read_text())
         self.assertEqual(receipt['verification'], 'cook_command_returned_zero')
