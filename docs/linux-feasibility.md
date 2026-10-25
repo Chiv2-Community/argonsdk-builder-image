@@ -1,8 +1,8 @@
 # Linux Windows-cooking investigation
 
 Investigation started 2026-10-24. The pinned native Linux engine image built
-successfully on 2026-10-25. An isolated SDK build succeeded with the RHI build-rule
-patch below. No Windows-target cook has succeeded yet.
+successfully on 2026-10-25. The reusable SDK image also built with the verified
+RHI build-rule patch below. No Windows-target cook has succeeded yet.
 
 ## Verified observations
 
@@ -38,6 +38,11 @@ patch below. No Windows-target cook has succeeded yet.
   The reusable Linux recipe now applies that transformation explicitly and
   validates its receipt against the committed source. Provenance identifies
   the patch and retains `dirty=true`; unrelated changes are rejected.
+- The built SDK image passed its actual consumer preparation path as nonroot
+  with a read-only root and disabled network: independent SDK copy, preserved
+  prebuilt TBL module, matching external input hashes, explicit patch identity,
+  unchanged template, and no copied Git metadata. This is input/workspace
+  validation, not a source-to-PAK result.
 - The current SDK image Dockerfile builds only a Linux editor. Its cook/package
   commands still require Windows. There is no implemented Wine backend.
 - Storage was reclaimed by the user: about 349 GiB was available when the first
