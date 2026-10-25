@@ -1,0 +1,53 @@
+name: Hosted Windows engine build (experimental)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/image-consumer-contract]
+    paths:
+      - .github/workflows/windows-engine.yml
+      - scripts/build-windows-engine.ps1
+permissions:
+  contents: read
+concurrency:
+  group: argonsdk-windows-engine
+  cancel-in-progress: false
+jobs:
+  engine:
+    runs-on: windows-2022
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: builder
+          persist-credentials: false
+      - name: Read pinned UE revision
+        run: |
+          $lock = Get-Content builder/build-lock.json -Raw | ConvertFrom-Json
+          if ($lock.engine.branch -ne '4.25-plus' -or $lock.engine.commit -notmatch '^[0-9a-f]{40}$') {
+            throw 'Pinned UE 4.25-plus is required'
+          }
+          "UE_COMMIT=$($lock.engine.commit)" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+          if ($LASTEXITCODE -ne 0) { throw 'Git long-path configuration failed' }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: EpicGames/UnrealEngine
+          ref: ${{ env.UE_COMMIT }}
+          token: ${{ secrets.UE_GITHUB_TOKEN }}
+          path: ue
+          persist-credentials: false
+      - name: Build pinned Win64 editor and tools
+        run: ./builder/scripts/build-windows-engine.ps1 -Engine ./ue
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: windows-engine-diagnostics
+          path: |
+            ue/.builder-engine.json
+            ue/.builder-transport.json
+            ue/Engine/Programs/UnrealBuildTool/Log*.txt
+          if-no-files-found: warn
+          retention-days: 7
