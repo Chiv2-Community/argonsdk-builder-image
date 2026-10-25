@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import workspace
 import builder
 import engine_tools
+import sdk_tools
 from fixtures import engine_fixture
 
 
@@ -53,6 +54,61 @@ class WorkspaceTests(unittest.TestCase):
 
     def no_checkout(self, *args):
         self.fail('Template + mounted source must not access the network')
+
+    def patched_sdk(self):
+        sdk = self.repository('patched SDK', {
+            'TBL.uproject': '{}', 'Content/Base.uasset': 'base',
+            sdk_tools.BUILD_RULES: 'PublicDependencyModuleNames.AddRange(new string[] {\n            "Engine",\n});\n',
+        })
+        commit = git(sdk, 'rev-parse', 'HEAD')
+        sdk_tools.apply_linux_rhi(sdk, commit)
+        return sdk, commit
+
+    def test_approved_sdk_patch_is_explicit_and_copied_into_provenance(self):
+        sdk, commit = self.patched_sdk()
+        identity = workspace.verified_sdk(sdk, commit)
+        self.assertTrue(identity['dirty'])
+        self.assertEqual(identity['verification'], 'git_commit_with_verified_build_rule_patch')
+        self.assertEqual(identity['build_rule_patch']['source_commit'], commit)
+        self.assertEqual(sdk_tools.apply_linux_rhi(sdk, commit), identity)
+        lock = dict(self.lock, argon_sdk=dict(self.lock['argon_sdk'], commit=commit))
+        state = workspace.prepare(lock, self.root / 'patched job', self.mod, self.no_checkout,
+                                  template=sdk, local_source=self.source)
+        self.assertEqual(state['sdk'], identity)
+        self.assertTrue((self.root / 'patched job/ArgonSDK' / sdk_tools.RECEIPT).is_file())
+
+    def test_sdk_patch_does_not_authorize_other_source_changes(self):
+        sdk, commit = self.patched_sdk()
+        (sdk / 'TBL.uproject').write_text('changed')
+        with self.assertRaisesRegex(ValueError, 'outside the approved'):
+            workspace.verified_sdk(sdk, commit)
+
+    def test_modified_sdk_patch_or_receipt_is_rejected(self):
+        sdk, commit = self.patched_sdk()
+        rules = sdk / sdk_tools.BUILD_RULES
+        after = rules.read_bytes()
+        rules.write_bytes(after + b'// extra change\n')
+        with self.assertRaisesRegex(ValueError, 'approved transformation'):
+            workspace.verified_sdk(sdk, commit)
+        rules.write_bytes(after)
+        receipt = sdk / sdk_tools.RECEIPT
+        data = json.loads(receipt.read_text())
+        data['before_sha256'] = '0' * 64
+        workspace.write_json(receipt, data)
+        with self.assertRaisesRegex(ValueError, 'approved transformation'):
+            workspace.verified_sdk(sdk, commit)
+
+    def test_unexpected_sdk_build_rules_are_not_patched(self):
+        for before in [b'no Engine dependency', b'            "Engine",\n            "RHI",']:
+            with self.subTest(before=before):
+                with self.assertRaises(ValueError):
+                    sdk_tools.add_rhi(before)
+
+    def test_rhi_patch_preserves_committed_line_endings(self):
+        for newline in [b'\n', b'\r\n']:
+            before = b'            "Engine",' + newline
+            after = sdk_tools.add_rhi(before)
+            self.assertEqual(after, before + b'            "RHI",' + newline)
 
     def prepare(self, job='job', **kwargs):
         return workspace.prepare(self.lock, self.root / job, self.mod, self.no_checkout,

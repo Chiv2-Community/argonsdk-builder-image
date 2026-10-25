@@ -35,8 +35,9 @@ patch below. No Windows-target cook has succeeded yet.
   omit the direct RHI dependency used by an inline Engine helper. A separate
   experimental image built successfully after adding only that dependency;
   no classes were removed and the pinned source checkout remains unchanged.
-  This patch is not yet part
-  of the reusable builder or an accepted SDK identity.
+  The reusable Linux recipe now applies that transformation explicitly and
+  validates its receipt against the committed source. Provenance identifies
+  the patch and retains `dirty=true`; unrelated changes are rejected.
 - The current SDK image Dockerfile builds only a Linux editor. Its cook/package
   commands still require Windows. There is no implemented Wine backend.
 - Storage was reclaimed by the user: about 349 GiB was available when the first

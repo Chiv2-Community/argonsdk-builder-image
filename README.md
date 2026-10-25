@@ -1,10 +1,10 @@
 # argonsdk-builder-image
 
-Reusable ArgonSDK editor environment and Windows content-mod build scaffold for
-the proposed `Chiv2-Community/argonsdk-builder-image` repository.
+Reusable ArgonSDK editor environment and Windows content-mod build scaffold.
 
-**Status:** orchestration and unit tests only. SDK compilation, engine cooking,
-and runtime compatibility remain untested. Nothing has been published.
+**Status:** native Linux engine and experimental SDK builds pass. Windows-target
+cooking, Windows image builds, and game-runtime compatibility remain unvalidated.
+Nothing has been published.
 
 ## Inputs
 
@@ -82,12 +82,14 @@ into the SDK. Without `--mod-config`, `prepare` checks out only ArgonSDK.
 
 `prepare --sdk-template <path>` copies an existing SDK instead of downloading
 it. This defaults to `ARGON_SDK_ROOT` when set by the image. The template must
-retain Git metadata, match the locked commit, and have clean, initialized
+retain Git metadata, match the locked commit, and have initialized
 submodules at recorded commits. Keep that template read-only for consumers.
 
 For an already mounted source checkout, add `--mod-source <path>`. This avoids
 downloading the primary mod; dependencies still use their pinned repositories.
-A Git mount must match its declared clean commit. Plain content mounts are
+The SDK must be clean except for the explicitly verified Linux build-rule patch
+below. Other SDK modifications are rejected. A Git mod-source mount must match
+its declared clean commit. Plain content mounts are
 allowed but are identified by content hashes only, not claimed to match a Git
 commit. All source mounts are read-only inputs to the builder.
 
@@ -183,8 +185,12 @@ docker build --build-arg UE_BASE_IMAGE='<private-registry>/<image>@sha256:<diges
 
 - `sdk-source` prepares the pinned SDK without compiling its modules.
 - `linux-builder`, the default target, attempts to build `TBLEditor` for Linux.
-  Plugin/platform failures remain investigation points. Do not hide failures by
-  stripping classes that mods need.
+  It explicitly adds the TBL module's missing RHI dependency. The patch is
+  recomputed from the committed build rules, verified byte-for-byte, and recorded
+  in `.builder-sdk-patches.json` and source provenance. Patched SDK identities
+  retain `dirty=true`; they are not represented as pristine upstream sources.
+  No reflected classes are removed. Other plugin/platform failures remain
+  investigation points.
 - No Wine environment or native Windows cross-cooker is implemented. Windows
   cook/package commands deliberately reject native Linux execution.
 

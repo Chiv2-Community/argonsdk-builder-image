@@ -8,6 +8,7 @@ import stat
 import subprocess
 from urllib.parse import urlsplit
 import engine_tools
+import sdk_tools
 
 STATE = '.builder-state.json'
 SDK_IDENTITY = '.builder-sdk.json'
@@ -131,7 +132,7 @@ def directory_within(root, relative):
     return path
 
 
-def git_identity(root):
+def git_identity(root, exclude=()):
     root = Path(root)
     # Do not accidentally report an enclosing repository as the source identity.
     if not (root / '.git').exists():
@@ -139,7 +140,8 @@ def git_identity(root):
     def git(*args):
         return subprocess.check_output(['git', '-C', str(root), *args], text=True).rstrip('\r\n')
     status = git('status', '--porcelain', '--untracked-files=all', '--', '.',
-                 f':(exclude){SDK_IDENTITY}', f':(exclude){STATE}')
+                 f':(exclude){SDK_IDENTITY}', f':(exclude){STATE}',
+                 *[f':(exclude){path}' for path in exclude])
     submodules = git('submodule', 'status', '--recursive')
     return {'commit': git('rev-parse', 'HEAD'), 'dirty': bool(status),
             'submodules': submodules.splitlines() if submodules else []}
@@ -149,7 +151,17 @@ def verified_sdk(root, expected):
     identity = git_identity(root)
     if identity is None:
         raise ValueError('SDK template must retain Git metadata for revision verification')
-    if identity['commit'] != expected or identity['dirty']:
+    if identity['commit'] != expected:
+        raise ValueError('SDK checkout does not match the clean pinned SDK revision')
+    if (Path(root) / sdk_tools.RECEIPT).exists():
+        patch = sdk_tools.verify_patch(root, expected)
+        remaining = git_identity(root, exclude=(sdk_tools.RECEIPT, sdk_tools.BUILD_RULES))
+        if remaining['dirty']:
+            raise ValueError('SDK checkout has changes outside the approved build-rule patch')
+        # Preserve dirty=true: the patched source is not the pristine upstream tree.
+        identity['build_rule_patch'] = patch
+        identity['verification'] = 'git_commit_with_verified_build_rule_patch'
+    elif identity['dirty']:
         raise ValueError('SDK checkout does not match the clean pinned SDK revision')
     # A leading space denotes an initialized submodule at its recorded commit.
     for line in identity['submodules']:
