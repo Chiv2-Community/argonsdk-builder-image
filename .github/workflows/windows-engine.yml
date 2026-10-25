@@ -40,14 +40,18 @@ jobs:
           path: ue
           persist-credentials: false
       - name: Build pinned Win64 editor and tools
-        run: ./builder/scripts/build-windows-engine.ps1 -Engine ./ue
+        run: |
+          # GitDependencies uses legacy .NET path handling, not Git's long-path support.
+          if (Test-Path D:/ue) { throw 'Short engine checkout path already exists' }
+          Move-Item -LiteralPath ./ue -Destination D:/ue
+          ./builder/scripts/build-windows-engine.ps1 -Engine D:/ue
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: windows-engine-diagnostics
           path: |
-            ue/.builder-engine.json
-            ue/.builder-transport.json
-            ue/Engine/Programs/UnrealBuildTool/Log*.txt
+            D:/ue/.builder-engine.json
+            D:/ue/.builder-transport.json
+            D:/ue/Engine/Programs/UnrealBuildTool/Log*.txt
           if-no-files-found: warn
           retention-days: 7
