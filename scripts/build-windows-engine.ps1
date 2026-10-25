@@ -38,9 +38,7 @@ try {
         --exclude=Linux --exclude=Mac --exclude=Android --exclude=IOS --exclude=TVOS `
         --exclude=Win32 --exclude=HoloLens
     if ($LASTEXITCODE -ne 0) { throw 'Windows dependency download failed' }
-    if (!(Test-Path '.ue4dependencies') -or (Get-Item '.ue4dependencies').Length -eq 0) {
-        throw 'Dependency completion manifest is missing'
-    }
+    & "$PSScriptRoot/check-windows-dependencies.ps1" -Engine $Engine
     & ./GenerateProjectFiles.bat -2019
     if ($LASTEXITCODE -ne 0) { throw 'Windows project generation failed' }
     foreach ($target in @('UE4Editor', 'ShaderCompileWorker', 'UnrealPak')) {

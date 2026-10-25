@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/windows-engine.yml
       - scripts/build-windows-engine.ps1
+      - scripts/check-windows-dependencies.ps1
 permissions:
   contents: read
 concurrency:
