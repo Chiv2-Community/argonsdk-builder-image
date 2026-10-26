@@ -1,5 +1,6 @@
 """Archive mechanics only; hosted cooking is the engine-reuse acceptance test."""
 import os
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -61,6 +62,22 @@ class EngineReuseTests(unittest.TestCase):
         reuse.roundtrip(self.engine, self.storage, reserve=0)
         (self.engine / 'Engine/Log.txt').write_text('consumer log')
         self.assertEqual(reuse.verify_products(self.engine, self.storage)['products'], 1)
+
+    def test_failed_check_records_differences_before_raising(self):
+        reuse.roundtrip(self.engine, self.storage, reserve=0)
+        product = self.engine / 'Engine/Binaries/Editor.dll'
+        timestamp = product.stat().st_mtime_ns
+        os.utime(product, ns=(timestamp, timestamp + 2000000000))
+        (product.parent / 'New.obj').write_bytes(b'new object')
+        report = self.root / 'products.json'
+        with self.assertRaisesRegex(ValueError, 'build products changed'):
+            reuse.verify_products(self.engine, self.storage, report)
+        data = json.loads(report.read_text())
+        self.assertEqual(data['verification'], 'engine_build_products_changed')
+        self.assertEqual(data['changes'], [
+            {'path': 'Engine/Binaries/Editor.dll', 'change': 'modified', 'fields': ['mtime_ns']},
+            {'path': 'Engine/Binaries/New.obj', 'change': 'added'},
+        ])
 
     def test_refuses_git_metadata_and_missing_receipt(self):
         (self.engine / '.git').mkdir()

@@ -82,15 +82,32 @@ def roundtrip(engine, storage, reserve=5 * 1024**3):
     return report
 
 
-def verify_products(engine, storage):
+def verify_products(engine, storage, report_path=None):
     files = json.loads((Path(storage) / 'inventory.json').read_text())['files']
     expected = [row for row in files if Path(row['path']).suffix.lower() in PRODUCT_SUFFIXES]
     if not expected:
         raise ValueError('No engine build products to verify')
     actual = [row for row in inventory(Path(engine)) if Path(row['path']).suffix.lower() in PRODUCT_SUFFIXES]
-    if actual != expected:
+    before = {row['path']: row for row in expected}
+    after = {row['path']: row for row in actual}
+    changes = []
+    for path in sorted(before.keys() | after.keys()):
+        if path not in before:
+            changes.append({'path': path, 'change': 'added'})
+        elif path not in after:
+            changes.append({'path': path, 'change': 'removed'})
+        elif before[path] != after[path]:
+            fields = [field for field in ('sha256', 'size', 'mtime_ns')
+                      if before[path][field] != after[path][field]]
+            changes.append({'path': path, 'change': 'modified', 'fields': fields})
+    report = {'verification': 'engine_build_products_changed' if changes else 'engine_build_products_unchanged',
+              'products': len(expected), 'changes': changes}
+    # Preserve failure evidence before raising; do not weaken the acceptance gate.
+    if report_path is not None:
+        workspace.write_json(report_path, report)
+    if changes:
         raise ValueError('Engine build products changed during consumer validation')
-    return {'verification': 'engine_build_products_unchanged', 'products': len(expected)}
+    return report
 
 
 def main():
@@ -103,7 +120,7 @@ def main():
     if args.command == 'roundtrip':
         report = roundtrip(args.engine, args.storage)
     else:
-        report = verify_products(args.engine, args.storage)
+        report = verify_products(args.engine, args.storage, args.report)
     workspace.write_json(args.report, report)
     print(json.dumps(report), flush=True)
 

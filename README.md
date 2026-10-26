@@ -3,7 +3,7 @@
 Reusable ArgonSDK editor environment and Windows content-mod build scaffold.
 
 **Status:** native Windows and Linux engine/SDK builds pass. The native Windows
-source-to-PAK baseline passes; the narrower single-mod cook is under validation.
+source-to-PAK baseline and explicit single-mod cook pass.
 Windows image builds and game-runtime compatibility remain unvalidated.
 
 The hosted Windows workflow also probes engine reuse: it archives the complete
@@ -14,6 +14,10 @@ objects, or PCH files. Only size/timing/result summaries are uploaded; the
 licensed archive, full inventory, and original tree stay on the ephemeral runner.
 This is a same-runner probe, not persistent caching or a clean-runner download
 test. It retains the installed compiler, SDK, and runtime prerequisites.
+Run `40353020810` restored and cooked successfully, but failed the final
+engine-product immutability check; rebuild-free reuse is not yet proven.
+The complete tree was 40.1 GB, its ZIP was 11.6 GB, and extraction took five
+minutes (decimal GB; includes source, dependencies, and intermediates).
 Nothing has been published.
 
 ## Inputs
