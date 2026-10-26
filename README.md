@@ -14,8 +14,11 @@ objects, or PCH files. Only size/timing/result summaries are uploaded; the
 licensed archive, full inventory, and original tree stay on the ephemeral runner.
 This is a same-runner probe, not persistent caching or a clean-runner download
 test. It retains the installed compiler, SDK, and runtime prerequisites.
-Run `40353020810` restored and cooked successfully, but failed the final
-engine-product immutability check; rebuild-free reuse is not yet proven.
+Runs `40353020810` and `40382235710` restored and cooked successfully.
+The latter confirmed all 6,505 existing engine products stayed unchanged;
+the SDK build added only `SharedPCH.Engine.h.obj` and `SharedPCH.Engine.h.pch`
+under `Engine/Intermediate`. The strict no-added-products check remains red.
+Existing-product reuse works, but a fully immutable consumer tree is unproven.
 The complete tree was 40.1 GB, its ZIP was 11.6 GB, and extraction took five
 minutes (decimal GB; includes source, dependencies, and intermediates).
 Nothing has been published.
