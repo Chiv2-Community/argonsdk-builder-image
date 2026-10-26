@@ -19,7 +19,8 @@ MAX_COOK_COMMAND_UNITS = 30000  # Leave headroom below Windows' 32767 UTF-16 lim
 
 
 def cook_packages(sdk, mod):
-    content = Path(sdk).resolve() / 'Content'
+    sdk = Path(sdk).resolve()
+    content = sdk / 'Content'
     source = workspace.directory_within(sdk, 'Content/' + mod['package_path'])
     packages = []
     for path in workspace.checked_tree(source):
