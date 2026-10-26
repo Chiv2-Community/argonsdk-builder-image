@@ -11,10 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(shutil.which('pwsh'), 'PowerShell is required')
 class WindowsValidationTests(unittest.TestCase):
-    def probe(self, fail):
+    def probe(self, fail, bundled=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            (root / 'engine/.git').mkdir(parents=True)
+            (root / 'engine').mkdir()
+            (root / ('ue-validation-git-metadata' if bundled else 'engine/.git')).mkdir()
             (root / 'descriptor.json').write_text('{}')
             wrapper = root / 'probe.ps1'
             wrapper.write_text('''
@@ -55,6 +56,12 @@ function global:python {
         self.assertEqual(summary['verification'], 'native_windows_source_cook_and_package_passed')
         self.assertEqual(summary['container_validation'], 'not_run')
         self.assertEqual(summary['game_runtime_validation'], 'not_run')
+
+    def test_receipt_only_bundle_requires_all_production_stages(self):
+        result, stages, summary = self.probe('none', bundled=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(stages, ['check', 'prepare', 'build-editor', 'cook', 'package'])
+        self.assertEqual(summary['verification'], 'native_windows_source_cook_and_package_passed')
 
     def test_failure_stops_before_any_later_stage_or_success_summary(self):
         order = ['check', 'prepare', 'build-editor', 'cook', 'package']

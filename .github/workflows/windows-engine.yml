@@ -12,6 +12,7 @@ on:
       - scripts/test-windows-runtime.ps1
       - scripts/collect-windows-diagnostics.ps1
       - scripts/builder.py
+      - scripts/test_engine_reuse.py
 permissions:
   contents: read
 concurrency:
@@ -51,6 +52,16 @@ jobs:
           if (Test-Path D:/ue) { throw 'Short engine checkout path already exists' }
           Move-Item -LiteralPath ./ue -Destination D:/ue
           ./builder/scripts/build-windows-engine.ps1 -Engine D:/ue
+      - name: Restore engine from a local bundle without rebuilding
+        run: |
+          # Keep licensed payloads local. Only summary metrics may be uploaded.
+          Move-Item -LiteralPath D:/ue/.git -Destination "$env:RUNNER_TEMP/ue-validation-git-metadata"
+          python builder/scripts/engine_tools.py check --engine D:/ue --lock builder/build-lock.json --platform Win64
+          if ($LASTEXITCODE -ne 0) { throw 'Engine receipt check failed before bundling' }
+          python builder/scripts/test_engine_reuse.py roundtrip --engine D:/ue --storage "$env:RUNNER_TEMP/engine-reuse" --report "$env:RUNNER_TEMP/windows-engine-reuse.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Engine archive round-trip failed' }
+          python builder/scripts/engine_tools.py check --engine D:/ue --lock builder/build-lock.json --platform Win64
+          if ($LASTEXITCODE -ne 0) { throw 'Restored engine receipt check failed' }
       - name: Smoke-test Windows cooker runtime
         run: ./builder/scripts/test-windows-runtime.ps1 -Engine D:/ue
       - name: Cook and package external source on Windows
@@ -61,6 +72,10 @@ jobs:
           $descriptor = Join-Path $env:RUNNER_TEMP 'mod-descriptor.json'
           [IO.File]::WriteAllText($descriptor, $env:MOD_DESCRIPTOR_JSON)
           ./builder/scripts/validate-windows-builder.ps1 -Engine D:/ue -Workspace D:/argon-validation -Descriptor $descriptor
+      - name: Verify consumer did not rebuild engine products
+        run: |
+          python builder/scripts/test_engine_reuse.py verify-products --engine D:/ue --storage "$env:RUNNER_TEMP/engine-reuse" --report "$env:RUNNER_TEMP/windows-engine-reuse-products.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Consumer modified engine build products' }
       - name: Stage diagnostic files under one upload root
         if: always()
         run: |

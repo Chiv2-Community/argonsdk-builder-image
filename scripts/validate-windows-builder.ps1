@@ -12,8 +12,10 @@ if (Test-Path $Workspace) { throw 'Validation requires a fresh workspace' }
 # This job owns the ephemeral checkout. Retain Git metadata outside the built
 # tree so receipt validation covers the recorded transport-patched archive.
 $gitMetadata = Join-Path $env:RUNNER_TEMP 'ue-validation-git-metadata'
-if (Test-Path $gitMetadata) { throw 'Git metadata archive already exists' }
-Move-Item -LiteralPath (Join-Path $Engine '.git') -Destination $gitMetadata
+if (Test-Path -LiteralPath (Join-Path $Engine '.git')) {
+    if (Test-Path $gitMetadata) { throw 'Git metadata archive already exists' }
+    Move-Item -LiteralPath (Join-Path $Engine '.git') -Destination $gitMetadata
+}
 python "$PSScriptRoot/engine_tools.py" check --engine $Engine --lock "$builder/build-lock.json" --platform Win64
 if ($LASTEXITCODE -ne 0) { throw 'Built engine receipt verification failed' }
 python $cli --mod-config $Descriptor prepare --workspace $Workspace

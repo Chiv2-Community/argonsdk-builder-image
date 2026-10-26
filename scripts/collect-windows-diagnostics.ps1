@@ -14,6 +14,8 @@ $files = @{
     'BuildConfiguration.xml' = Join-Path $Engine 'Engine/Saved/UnrealBuildTool/BuildConfiguration.xml'
     'windows-builder-validation.json' = Join-Path $RuntimeTemp 'windows-builder-validation.json'
     'windows-runtime-smoke.log' = Join-Path $RuntimeTemp 'windows-runtime-smoke.log'
+    'windows-engine-reuse.json' = Join-Path $RuntimeTemp 'windows-engine-reuse.json'
+    'windows-engine-reuse-products.json' = Join-Path $RuntimeTemp 'windows-engine-reuse-products.json'
 }
 foreach ($name in $files.Keys) {
     if (Test-Path -LiteralPath $files[$name] -PathType Leaf) {
