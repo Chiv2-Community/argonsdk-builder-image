@@ -154,12 +154,89 @@ class BuilderTests(unittest.TestCase):
         args = [str(arg) for arg in run.call_args.args[0]]
         self.assertIn('-TargetPlatform=WindowsNoEditor', args)
         self.assertTrue(any('BlueprintNativizationMethod=Disabled' in arg for arg in args))
-        self.assertTrue(any(arg.startswith('-CookDir=') for arg in args))
-        self.assertIn(f'-CookDir={sdk.resolve() / "Content" / self.mod["package_path"]}', args)
+        self.assertIn('-cooksinglepackage', args)
+        self.assertIn('-skipeditorcontent', args)
+        self.assertIn('-Map=/Game/Mods/AgMods/ExampleMod/Test', args)
+        self.assertFalse(any(arg.startswith('-CookDir=') for arg in args))
         self.assertNotIn('-iterate', args)
         receipt = json.loads((sdk / builder.COOK_RECEIPT).read_text())
         self.assertEqual(receipt['verification'], 'cook_command_returned_zero')
         self.assertEqual(len(receipt['files']), 2)
+        self.assertEqual(receipt['requested_packages'], ['/Game/Mods/AgMods/ExampleMod/Test'])
+        self.assertEqual(receipt['commands'], [args])
+        self.assertIn(f'-DefGameIni={sdk.resolve() / "Saved/BuilderCook/DefaultGame.ini"}', args)
+        config = sdk / receipt['game_config_override']['path']
+        self.assertEqual(builder.file_hash(config), receipt['game_config_override']['sha256'])
+
+    def test_cook_uses_derived_config_without_modifying_sdk_defaults(self):
+        source = self.root / 'Config/DefaultGame.ini'
+        source.parent.mkdir()
+        before = b'[/Script/UnrealEd.ProjectPackagingSettings]\r\n+DirectoriesToAlwaysCook=(Path="/Game/Mods")\r\n'
+        source.write_bytes(before)
+        receipt = builder.cook_game_config(self.root)
+        derived = self.root / receipt['path']
+        self.assertEqual(source.read_bytes(), before)
+        self.assertTrue(derived.read_bytes().startswith(before))
+        self.assertIn(b'!DirectoriesToAlwaysCook=ClearArray', derived.read_bytes())
+        self.assertIn(b'!MapsToCook=ClearArray', derived.read_bytes())
+        self.assertEqual(builder.file_hash(derived), receipt['sha256'])
+        with self.assertRaises(FileExistsError):
+            builder.cook_game_config(self.root)
+
+    def test_cook_enumerates_only_mod_assets_and_maps(self):
+        engine, sdk, _ = self.package_fixture()
+        source = sdk / 'Content' / self.mod['package_path']
+        (source / 'Sub').mkdir()
+        (source / 'Sub/Level.umap').write_bytes(b'map')
+        (source / 'Test.uexp').write_bytes(b'not a root package')
+        (sdk / 'Content/Unrelated.uasset').write_bytes(b'not this mod')
+        self.assertEqual(builder.cook_packages(sdk, self.mod), [
+            '/Game/Mods/AgMods/ExampleMod/Sub/Level', '/Game/Mods/AgMods/ExampleMod/Test'])
+
+    def test_cook_rejects_ambiguous_package_names(self):
+        _, sdk, _ = self.package_fixture()
+        for name in ['Bad+Name.uasset', 'Bad Name.uasset', 'Bad.Name.uasset', 'Test.umap']:
+            path = sdk / 'Content' / self.mod['package_path'] / name
+            path.write_bytes(b'bad')
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    builder.cook_packages(sdk, self.mod)
+            path.unlink()
+
+    def test_cook_batches_by_package_count_and_encoded_command_length(self):
+        for packages in [
+            [f'/Game/Mods/Example/Asset{i:04}' for i in range(501)],
+            ['/Game/Mods/Example/' + 'x' * 200 + str(i) for i in range(250)],
+            ['/Game/Mods/Example/' + '\U0001f600' * 150 + str(i) for i in range(150)],
+        ]:
+            commands = builder.cook_commands(self.root, self.root, packages)
+            self.assertGreater(len(commands), 1)
+            roots = []
+            for index, command in enumerate(commands):
+                text = builder.subprocess.list2cmdline([str(arg) for arg in command])
+                self.assertLess(len(text.encode('utf-16-le')) // 2, builder.MAX_COOK_COMMAND_UNITS)
+                batch = next(arg for arg in command if str(arg).startswith('-Map='))[5:].split('+')
+                self.assertLessEqual(len(batch), builder.MAX_COOK_PACKAGES)
+                self.assertEqual('-iterate' in command, index > 0)
+                roots.extend(batch)
+            self.assertEqual(roots, packages)
+
+    def test_cook_refuses_single_package_exceeding_command_limit(self):
+        with self.assertRaisesRegex(ValueError, 'command-line limit'):
+            builder.cook_commands(self.root, self.root, ['/Game/' + 'x' * 33000])
+
+    def test_failed_cook_chunk_never_writes_a_receipt(self):
+        engine, sdk, _ = self.package_fixture()
+        # Remove the fixture's output so the fresh-workspace gate passes.
+        cooked = sdk / 'Saved/Cooked/WindowsNoEditor'
+        cooked.rename(sdk / 'Saved/fixture')
+        commands = [['fake', 'first'], ['fake', 'second']]
+        with patch.object(builder, 'os', SimpleNamespace(name='nt')):
+            with patch.object(builder, 'cook_commands', return_value=commands):
+                with patch.object(builder, 'run', side_effect=[None, builder.subprocess.CalledProcessError(1, 'fake')]):
+                    with self.assertRaises(builder.subprocess.CalledProcessError):
+                        builder.cook(engine, sdk, self.mod)
+        self.assertFalse((sdk / builder.COOK_RECEIPT).exists())
 
     def test_zero_exit_without_cooked_assets_does_not_create_receipt(self):
         self.write_state(self.root)
@@ -204,6 +281,15 @@ class BuilderTests(unittest.TestCase):
                     builder.cook(self.root, self.root, self.mod)
                 run.assert_not_called()
 
+    def test_cook_refuses_previous_generated_config(self):
+        self.write_state(self.root)
+        (self.root / 'Saved/BuilderCook').mkdir(parents=True)
+        with patch.object(builder, 'os', SimpleNamespace(name='nt')):
+            with patch.object(builder, 'run') as run:
+                with self.assertRaisesRegex(ValueError, 'Clean cook required'):
+                    builder.cook(self.root, self.root, self.mod)
+                run.assert_not_called()
+
     def package_fixture(self):
         sdk = self.root / 'sdk'
         source = sdk / 'Content' / self.mod['package_path']
@@ -224,6 +310,9 @@ class BuilderTests(unittest.TestCase):
 
     def test_package_manifest_and_mount(self):
         engine, sdk, output = self.package_fixture()
+        unrelated = sdk / 'Saved/Cooked/WindowsNoEditor/TBL/Content/Mods/Other/Other.uasset'
+        unrelated.parent.mkdir(parents=True)
+        unrelated.write_bytes(b'not this mod')
         receipt = {
             'verification': 'cook_command_returned_zero',
             'engine': builder.workspace.engine_identity(engine, self.lock['engine'], 'Win64'),
@@ -242,6 +331,7 @@ class BuilderTests(unittest.TestCase):
                 builder.package(engine, sdk, output, self.lock, self.mod)
         self.assertEqual(run.call_count, 3)
         response = (output / 'pak-inputs.txt').read_text()
+        self.assertNotIn('Other', response)
         self.assertIn('"../../../TBL/Content/Mods/AgMods/ExampleMod/Test.uasset"', response)
         self.assertTrue((output / 'ExampleMod.pak').exists())
         self.assertTrue((output / 'ExampleMod.pak.sha256').exists())

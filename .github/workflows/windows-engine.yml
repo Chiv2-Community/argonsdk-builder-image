@@ -11,6 +11,7 @@ on:
       - scripts/validate-windows-builder.ps1
       - scripts/test-windows-runtime.ps1
       - scripts/collect-windows-diagnostics.ps1
+      - scripts/builder.py
 permissions:
   contents: read
 concurrency:

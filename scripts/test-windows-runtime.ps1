@@ -6,7 +6,8 @@ New-Item -ItemType Directory -Path (Join-Path $probe 'Content') | Out-Null
 $project = Join-Path $probe 'Probe.uproject'
 '{"FileVersion":3,"EngineAssociation":"","Plugins":[]}' | Set-Content $project
 $editor = Join-Path $Engine 'Engine/Binaries/Win64/UE4Editor-Cmd.exe'
-& $editor $project -run=Cook -TargetPlatform=WindowsNoEditor -unattended -NullRHI -nop4 -nosplash -stdout -FullStdOutLogOutput 2>&1 |
+# Exercise one explicit engine package, not an implicit project-wide cook.
+& $editor $project -run=Cook -TargetPlatform=WindowsNoEditor -cooksinglepackage '-Map=/Engine/EngineMaterials/DefaultMaterial' -unattended -NullRHI -nop4 -nosplash -stdout -FullStdOutLogOutput 2>&1 |
     Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'windows-runtime-smoke.log')
 if ($LASTEXITCODE -ne 0) {
     $code = $LASTEXITCODE -band 0xFFFFFFFFL

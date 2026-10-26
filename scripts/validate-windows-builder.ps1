@@ -33,6 +33,9 @@ if ($manifest.cook.verification -ne 'cook_command_returned_zero') { throw 'Actua
     verification = 'native_windows_source_cook_and_package_passed'
     engine_commit = $manifest.engine.commit
     cooked_files = @($manifest.files).Count
+    requested_packages = @($manifest.cook.requested_packages).Count
+    cook_batches = @($manifest.cook.commands).Count
+    packaged_packages = @($manifest.files | Where-Object { $_.path -match '\.(uasset|umap)$' }).Count
     pak_sha256 = $manifest.pak_sha256
     container_validation = 'not_run'
     game_runtime_validation = 'not_run'

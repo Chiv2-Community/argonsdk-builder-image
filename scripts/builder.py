@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pinned SDK preparation and Windows content cooking. No publication commands."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,68 @@ import engine_tools
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_SUFFIXES = {'.uasset', '.umap', '.uexp', '.ubulk'}
 COOK_RECEIPT = '.builder-cook.json'
+MAX_COOK_PACKAGES = 250
+MAX_COOK_COMMAND_UNITS = 30000  # Leave headroom below Windows' 32767 UTF-16 limit.
+
+
+def cook_packages(sdk, mod):
+    content = Path(sdk).resolve() / 'Content'
+    source = workspace.directory_within(sdk, 'Content/' + mod['package_path'])
+    packages = []
+    for path in workspace.checked_tree(source):
+        if not path.is_file() or path.suffix not in {'.uasset', '.umap'}:
+            continue
+        package = '/Game/' + path.relative_to(content).with_suffix('').as_posix()
+        # UE long package names forbid these characters; '+' also separates Map entries.
+        if any(c in package for c in '\\:*?"<>|\' ,.&!~\n\r\t@#+'):
+            raise ValueError(f'Invalid Unreal package name: {package}')
+        packages.append(package)
+    if not packages or len({p.casefold() for p in packages}) != len(packages):
+        raise ValueError('Cook requires nonempty, unique source package names')
+    return sorted(packages)
+
+
+def cook_commands(engine, sdk, packages):
+    base = [tool(engine, 'UE4Editor-Cmd'), Path(sdk) / 'TBL.uproject', '-run=Cook',
+            '-TargetPlatform=WindowsNoEditor', '-cooksinglepackage', '-skipeditorcontent',
+            '-unattended', '-nop4', '-UTF8Output', '-NullRHI',
+            f'-DefGameIni={Path(sdk) / "Saved/BuilderCook/DefaultGame.ini"}',
+            '-ini:Game:[/Script/UnrealEd.ProjectPackagingSettings]:BlueprintNativizationMethod=Disabled']
+
+    def command(batch, continuation=False):
+        # Only later chunks may reuse output created earlier in this fresh job.
+        return [*base, '-Map=' + '+'.join(batch), *(['-iterate'] if continuation else [])]
+
+    def fits(batch):
+        text = subprocess.list2cmdline([str(arg) for arg in command(batch, True)])
+        return len(batch) <= MAX_COOK_PACKAGES and len(text.encode('utf-16-le')) // 2 < MAX_COOK_COMMAND_UNITS
+
+    commands, batch = [], []
+    for package in packages:
+        if not fits([*batch, package]):
+            if not batch:
+                raise ValueError('Cook command exceeds the Windows command-line limit')
+            commands.append(command(batch, bool(commands)))
+            batch = []
+            if not fits([package]):
+                raise ValueError('Cook command exceeds the Windows command-line limit')
+        batch.append(package)
+    if batch:
+        commands.append(command(batch, bool(commands)))
+    return commands
+
+
+def cook_game_config(sdk):
+    original = workspace.directory_within(sdk, 'Config/DefaultGame.ini')
+    before = original.read_bytes() if original.is_file() else b''
+    # CookCommandlet reads DirectoriesToAlwaysCook even in single-package mode.
+    after = before + b'\n[/Script/UnrealEd.ProjectPackagingSettings]\n!DirectoriesToAlwaysCook=ClearArray\n!MapsToCook=ClearArray\n'
+    path = Path(sdk) / 'Saved/BuilderCook/DefaultGame.ini'
+    path.parent.mkdir(parents=True, exist_ok=False)
+    path.write_bytes(after)
+    return {'path': 'Saved/BuilderCook/DefaultGame.ini',
+            'original_sha256': hashlib.sha256(before).hexdigest(),
+            'sha256': hashlib.sha256(after).hexdigest()}
 
 
 def run(args, log=None):
@@ -77,19 +140,22 @@ def cook(engine, sdk, mod):
     sdk = Path(sdk).resolve()
     state = workspace.verify_inputs(sdk, mod)
     cooked = sdk / 'Saved/Cooked/WindowsNoEditor'
-    if cooked.exists() or (sdk / COOK_RECEIPT).exists():
+    if cooked.exists() or (sdk / COOK_RECEIPT).exists() or (sdk / 'Saved/BuilderCook').exists():
         raise ValueError(f'Clean cook required; use a fresh SDK checkout: {cooked}')
-    command = [tool(engine, 'UE4Editor-Cmd'), sdk / 'TBL.uproject', '-run=Cook',
-         '-TargetPlatform=WindowsNoEditor', f'-CookDir={sdk / "Content" / mod["package_path"]}',
-         '-unattended', '-nop4', '-UTF8Output', '-NullRHI',
-         '-ini:Game:[/Script/UnrealEd.ProjectPackagingSettings]:BlueprintNativizationMethod=Disabled']
+    packages = cook_packages(sdk, mod)
+    commands = cook_commands(engine, sdk, packages)
     engine_info = workspace.engine_identity(engine, state['lock']['engine'], 'Win64')
-    run(command)
+    config = cook_game_config(sdk)
+    for command in commands:
+        run(command)
+        workspace.verify_inputs(sdk, mod)
     workspace.verify_inputs(sdk, mod)
     entries = cooked_inventory(sdk, mod)
     workspace.write_json(sdk / COOK_RECEIPT, {
         'verification': 'cook_command_returned_zero',
-        'command': [str(arg) for arg in command], 'engine': engine_info,
+        'commands': [[str(arg) for arg in command] for command in commands],
+        'requested_packages': packages, 'engine': engine_info,
+        'game_config_override': config,
         'files': [{'path': rel, 'sha256': file_hash(path)} for path, rel in entries],
         'editor_sha256': file_hash(tool(engine, 'UE4Editor-Cmd')) if tool(engine, 'UE4Editor-Cmd').is_file() else None,
     })

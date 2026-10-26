@@ -2,8 +2,9 @@
 
 Reusable ArgonSDK editor environment and Windows content-mod build scaffold.
 
-**Status:** native Windows and Linux engine/SDK builds pass. Windows-target
-cooking, Windows image builds, and game-runtime compatibility remain unvalidated.
+**Status:** native Windows and Linux engine/SDK builds pass. The native Windows
+source-to-PAK baseline passes; the narrower single-mod cook is under validation.
+Windows image builds and game-runtime compatibility remain unvalidated.
 Nothing has been published.
 
 ## Inputs
@@ -73,6 +74,21 @@ python scripts/builder.py build-editor --engine $env:UE_ROOT --sdk work/ArgonSDK
 python scripts/builder.py --mod-config ../mod.json cook --engine $env:UE_ROOT --sdk work/ArgonSDK
 python scripts/builder.py --mod-config ../mod.json package --engine $env:UE_ROOT --sdk work/ArgonSDK --output dist
 ```
+
+Cooking enumerates only the selected mod's `.uasset` and `.umap` packages and
+passes them explicitly with `-cooksinglepackage -Map=... -skipeditorcontent`.
+A generated `-DefGameIni` override clears `DirectoriesToAlwaysCook` and
+`MapsToCook`, without changing the SDK's original config. The cook receipt
+records package names, commands, and config hashes. Source/cooked inventory
+checks must still pass; a nonzero cooker exit is never accepted from log text.
+
+Large selections are split by package count and Windows command-line length.
+The first chunk is noniterative; subsequent chunks may reuse only output made
+earlier in that fresh workspace. Existing cooked output, receipts, or generated
+cook config are rejected. Packaging includes only the mod's namespace, not
+other cooked project content. Referenced game assets or separately distributed
+dependency PAKs must already be available to the game; single-package cooking
+does not promise to bundle a dependency closure.
 
 `UE_ROOT` must contain `Engine/`. Preparation checks out recorded submodule
 commits, never remote branch heads, and copies the selected content directory
@@ -179,11 +195,12 @@ The effective compiler product version and configuration are retained in the
 job diagnostics. This native baseline is not Windows container or game-runtime
 validation.
 
-The first completed Windows engine/SDK build reached cooker startup but failed
-with `0xC0000135` (missing runtime DLL). The job now includes the runtime
-prerequisite step from upstream `Setup.bat` and an empty-project cooker smoke
-before the SDK/reference stages. Prerequisite installation is not evidence
-that source cooking or Windows container startup works.
+The runtime prerequisite step from upstream `Setup.bat` fixed the initial
+`0xC0000135` missing-DLL startup failure. Hosted run `40228190767` passed the
+native Windows source cook and PAK validation. The runtime smoke now selects
+one explicit engine material instead of an implicit empty-project full cook.
+Neither native success nor prerequisite installation validates a Windows
+container or the game runtime.
 
 ## Experimental Linux image
 
