@@ -4,6 +4,39 @@ Investigation started 2026-10-24. The pinned native Linux engine image built
 successfully on 2026-10-25. The reusable SDK image also built with the verified
 RHI build-rule patch below. No Windows-target cook has succeeded yet.
 
+## Source-mod probe: 2026-10-27
+
+- Rebuilt pristine pinned UE and the SDK in local Linux image
+  `sha256:31af0d74190f6f67e28295640175eef9152dc0bb372ad719bb6e263b773a6391`.
+  The pristine engine is at `/opt/argon-stock-engine`; the available patched
+  image was used only as a toolchain base. This oversized probe is not a
+  publication candidate.
+- Prepared the external reference's 41 source packages in independent SDK
+  copies, with recorded source hashes and the single-package config override.
+- Actual native `WindowsNoEditor` cooking exited 1 at platform discovery:
+  `Invalid target platform specified (WindowsNoEditor)`. Only Android and Linux
+  target variants were available. No Windows-target PAK was created.
+- The separate Linux-target diagnostic initially failed loading a copied SDK
+  plugin. The library existed, but generated ELF RPATHs depended on the
+  template's original path depth. The local probe now resolves library paths
+  from the isolated SDK and pristine engine explicitly. With that correction,
+  the Linux-target cook returned zero: 41 packages, 82 cooked files, 17.94 seconds.
+  Native UnrealPak create/test/list/extract and extracted-file hash checks passed
+  in another 1.96 seconds. The PAK is 1,535,091 bytes, SHA-256
+  `449ed751ceb88c1957369318367428f82c13a8db821eb523e3fcd3e5a691bbdb`.
+- That Linux-target result is not Windows compatibility evidence. The SDK clears
+  Linux `TargetedRHIs`; the pinned Linux target platform supports Vulkan/OpenGL
+  shader formats, not `PCD3D_SM5`. A successful asset inventory and PAK integrity
+  check do not establish working Windows material shaders. No game-runtime
+  validation has been performed. The production Linux backend remains blocked.
+- Available patched engine `ff1252c75809` cannot substitute for pristine UE:
+  its `Engine.AssemblyInstance` conflicts with ArgonSDK's `TBL.AssemblyInstance`.
+  Do not remove SDK classes to bypass this incompatible base.
+
+Evidence is retained locally under
+`~/.cache/argonsdk-builder/linux-native-mod-probe/`. No licensed image or PAK
+has been uploaded.
+
 ## Verified observations
 
 - The required engine is UE `4.25-plus` commit
@@ -63,8 +96,8 @@ cooking is impossible.
 
 ## Next experiments
 
-1. Complete the SDK build on the pinned Linux engine with bounded parallelism.
-   Establish the Windows container baseline on a compatible Windows Docker host.
+1. Establish the Windows container baseline on a compatible Windows Docker host.
+   Native Windows source-to-PAK already passes; this is not container acceptance.
 2. For native Linux cooking, enumerate available target/shader format modules
    and run a small source-to-WindowsNoEditor cook. Preserve errors and identify
    necessary platform/compiler patches; a Linux-target cook is not success.
