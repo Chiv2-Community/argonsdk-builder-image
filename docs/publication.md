@@ -43,7 +43,8 @@ restricted even when no credentials are present.
 
 ## Current blockers
 
-- No verified Windows container build or either-backend Windows-target cook.
+- No verified Windows container build or Linux-hosted Windows-target cook.
+  Native hosted Windows source cooking passes.
 - No approved recipient list or completed redistribution review.
 - No package permission or separate-consumer pull tests.
 - The current host GitHub credential cannot list organization packages
@@ -52,3 +53,8 @@ restricted even when no credentials are present.
   validation gates are ready; do not print tokens or alter scopes silently.
 
 See [issue #4](https://github.com/Chiv2-Community/argonsdk-builder-image/issues/4).
+
+The separate Wine experiment uses recipient-encrypted Actions artifacts solely
+to transfer a Windows cooker to a locally held private key. No plaintext engine,
+SDK, or private key is uploaded; this is not registry publication or a supported
+image release. See `linux-feasibility.md` for the transfer and validation limits.

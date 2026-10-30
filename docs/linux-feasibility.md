@@ -37,6 +37,21 @@ Evidence is retained locally under
 `~/.cache/argonsdk-builder/linux-native-mod-probe/`. No licensed image or PAK
 has been uploaded.
 
+## Windows cooker under Wine: experiment started 2026-10-30
+
+`windows-wine-probe.yml` builds the pinned Windows engine and a workload-free
+Windows SDK template. It omits Git metadata, build intermediates, DDC, and saved
+job state from the transfer archive, then encrypts it with pinned age 1.3.2.
+Only ciphertext and checksums are uploaded, with one-day retention. The public
+`WINE_PROBE_RECIPIENT` repository variable selects a locally held X25519 identity;
+the private key never enters Actions or the repository. No GHCR image is pushed.
+
+The consumer must select the trusted workflow run/commit, decrypt locally,
+verify the archive and per-file manifest, and test Windows executables in an
+isolated Wine prefix. Recipient encryption is not a signature or proof of sender.
+This transfer experiment does not relax the licensed-image publication gates.
+Wine source cooking and Windows-game compatibility remain unvalidated.
+
 ## Verified observations
 
 - The required engine is UE `4.25-plus` commit

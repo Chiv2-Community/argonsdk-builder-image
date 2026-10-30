@@ -1,0 +1,75 @@
+name: Encrypted Windows cooker for Wine probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/image-consumer-contract]
+    paths:
+      - .github/workflows/windows-wine-probe.yml
+      - scripts/bundle_windows_cooker.py
+permissions:
+  contents: read
+concurrency:
+  group: argonsdk-windows-wine-bundle
+  cancel-in-progress: false
+jobs:
+  bundle:
+    runs-on: windows-2022
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: builder
+          persist-credentials: false
+      - name: Validate encryption recipient and source pin
+        env:
+          RECIPIENT: ${{ vars.WINE_PROBE_RECIPIENT }}
+        run: |
+          if ($env:RECIPIENT -cnotmatch '^age1[0-9a-z]{58}$') { throw 'A local-only age identity and public WINE_PROBE_RECIPIENT variable are required' }
+          $lock = Get-Content builder/build-lock.json -Raw | ConvertFrom-Json
+          if ($lock.engine.branch -ne '4.25-plus' -or $lock.engine.commit -notmatch '^[0-9a-f]{40}$') { throw 'Invalid engine pin' }
+          "UE_COMMIT=$($lock.engine.commit)" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+          if ($LASTEXITCODE -ne 0) { throw 'Git long paths failed' }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: EpicGames/UnrealEngine
+          ref: ${{ env.UE_COMMIT }}
+          token: ${{ secrets.UE_GITHUB_TOKEN }}
+          path: ue
+          persist-credentials: false
+      - name: Build pinned engine and workload-free SDK
+        run: |
+          if (Test-Path D:/ue) { throw 'Engine destination already exists' }
+          Move-Item -LiteralPath ./ue -Destination D:/ue
+          ./builder/scripts/build-windows-engine.ps1 -Engine D:/ue
+          Move-Item -LiteralPath D:/ue/.git -Destination "$env:RUNNER_TEMP/ue-git-metadata"
+          python builder/scripts/builder.py prepare --workspace D:/wine-sdk
+          if ($LASTEXITCODE -ne 0) { throw 'Workload-free SDK preparation failed' }
+          python builder/scripts/builder.py build-editor --engine D:/ue --sdk D:/wine-sdk/ArgonSDK
+          if ($LASTEXITCODE -ne 0) { throw 'SDK module compilation failed' }
+      - name: Download pinned age encryption tool
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'age.zip'
+          Invoke-WebRequest 'https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-windows-amd64.zip' -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7') { throw 'age download hash mismatch' }
+          Expand-Archive -LiteralPath $zip -DestinationPath "$env:RUNNER_TEMP/age-tool"
+      - name: Encrypt bundle to the local recipient
+        env:
+          RECIPIENT: ${{ vars.WINE_PROBE_RECIPIENT }}
+        run: |
+          $age = Get-ChildItem "$env:RUNNER_TEMP/age-tool" -Recurse -Filter age.exe
+          if (@($age).Count -ne 1) { throw 'Expected exactly one age executable' }
+          python builder/scripts/bundle_windows_cooker.py --engine D:/ue --sdk D:/wine-sdk/ArgonSDK --archive "$env:RUNNER_TEMP/cooker-private/cooker.zip" --output "$env:RUNNER_TEMP/cooker-encrypted" --age $age.FullName --recipient $env:RECIPIENT
+          if ($LASTEXITCODE -ne 0) { throw 'Encrypted bundle generation failed' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: encrypted-windows-cooker
+          path: |
+            ${{ runner.temp }}/cooker-encrypted/windows-cooker.zip.age
+            ${{ runner.temp }}/cooker-encrypted/transfer.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
