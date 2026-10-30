@@ -47,8 +47,9 @@ Only ciphertext and checksums are uploaded, with one-day retention. The public
 the private key never enters Actions or the repository. No GHCR image is pushed.
 
 The consumer must select the trusted workflow run/commit, decrypt locally,
-verify the archive and per-file manifest, and test Windows executables in an
-isolated Wine prefix. Recipient encryption is not a signature or proof of sender.
+verify the archive and per-file manifest with `scripts/windows_bundle.py`, and
+test Windows executables in an isolated Wine prefix. Recipient encryption is
+not a signature or proof of sender.
 This transfer experiment does not relax the licensed-image publication gates.
 Wine source cooking and Windows-game compatibility remain unvalidated.
 
