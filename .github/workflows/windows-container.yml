@@ -5,6 +5,7 @@ on:
     branches: [feature/image-consumer-contract]
     paths:
       - .github/workflows/windows-container.yml
+      - scripts/start-windows-docker.ps1
 permissions:
   contents: read
 concurrency:
@@ -22,6 +23,8 @@ jobs:
         with:
           path: builder
           persist-credentials: false
+      - name: Start Windows container daemon
+        run: ./builder/scripts/start-windows-docker.ps1
       - name: Preflight Windows containers and pinned inputs
         env:
           MOD_DESCRIPTOR_JSON: ${{ secrets.MOD_DESCRIPTOR_JSON }}
