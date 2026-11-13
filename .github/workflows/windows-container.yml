@@ -1,0 +1,94 @@
+name: Hosted Windows container source cook (experimental)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/image-consumer-contract]
+    paths:
+      - .github/workflows/windows-container.yml
+permissions:
+  contents: read
+concurrency:
+  group: argonsdk-windows-container
+  cancel-in-progress: false
+jobs:
+  cook:
+    runs-on: windows-2022
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: builder
+          persist-credentials: false
+      - name: Preflight Windows containers and pinned inputs
+        env:
+          MOD_DESCRIPTOR_JSON: ${{ secrets.MOD_DESCRIPTOR_JSON }}
+        run: |
+          if (!$env:MOD_DESCRIPTOR_JSON) { throw 'External MOD_DESCRIPTOR_JSON secret is required' }
+          $lock = Get-Content builder/build-lock.json -Raw | ConvertFrom-Json
+          if ($lock.engine.branch -ne '4.25-plus' -or $lock.engine.commit -notmatch '^[0-9a-f]{40}$') { throw 'Invalid engine pin' }
+          "UE_COMMIT=$($lock.engine.commit)" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+          if ($LASTEXITCODE -ne 0) { throw 'Git configuration failed' }
+          docker pull mcr.microsoft.com/windows/servercore:ltsc2022
+          if ($LASTEXITCODE -ne 0) { throw 'Windows base pull failed' }
+          $base = docker image inspect mcr.microsoft.com/windows/servercore:ltsc2022 --format '{{index .RepoDigests 0}}'
+          if ($LASTEXITCODE -ne 0) { throw 'Windows base digest lookup failed' }
+          "WINDOWS_BASE_IMAGE=$base" >> $env:GITHUB_ENV
+          docker run --rm --isolation=process $base cmd /c ver
+          if ($LASTEXITCODE -ne 0) { throw 'Process-isolated container preflight failed' }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: EpicGames/UnrealEngine
+          ref: ${{ env.UE_COMMIT }}
+          token: ${{ secrets.UE_GITHUB_TOKEN }}
+          path: ue
+          persist-credentials: false
+      - name: Build pinned engine and precompiled workload-free SDK
+        run: |
+          if (Test-Path D:/ue) { throw 'Engine destination must be new' }
+          Move-Item ./ue D:/ue
+          ./builder/scripts/build-windows-engine.ps1 -Engine D:/ue
+          Move-Item D:/ue/.git "$env:RUNNER_TEMP/ue-container-git-metadata"
+          python builder/scripts/builder.py prepare --workspace D:/container-template
+          if ($LASTEXITCODE -ne 0) { throw 'SDK preparation failed' }
+          python builder/scripts/builder.py build-editor --engine D:/ue --sdk D:/container-template/ArgonSDK
+          if ($LASTEXITCODE -ne 0) { throw 'SDK compilation failed' }
+      - name: Bake local Windows cooker image
+        run: |
+          ./builder/scripts/build-windows-cooker-image.ps1 -Engine D:/ue -Sdk D:/container-template/ArgonSDK -Context D:/cooker-image-context -BaseImage $env:WINDOWS_BASE_IMAGE -Tag argonsdk-windows-cooker:probe
+          docker image inspect argonsdk-windows-cooker:probe --format '{{.Id}} {{.Os}} {{.Architecture}} {{.Size}}'
+          if ($LASTEXITCODE -ne 0) { throw 'Image inspection failed' }
+      - name: Cook and verify PAK inside the Windows image
+        env:
+          MOD_DESCRIPTOR_JSON: ${{ secrets.MOD_DESCRIPTOR_JSON }}
+        run: |
+          New-Item -ItemType Directory D:/container-input | Out-Null
+          [IO.File]::WriteAllText('D:/container-input/mod.json', $env:MOD_DESCRIPTOR_JSON)
+          docker create --name argon-cook --isolation=process argonsdk-windows-cooker:probe --descriptor C:/work/mod.json
+          if ($LASTEXITCODE -ne 0) { throw 'Container creation failed' }
+          docker cp D:/container-input/mod.json argon-cook:C:/work/mod.json
+          if ($LASTEXITCODE -ne 0) { throw 'Descriptor staging failed' }
+          docker start --attach argon-cook
+          $code = docker inspect argon-cook --format '{{.State.ExitCode}}'
+          if ($LASTEXITCODE -ne 0 -or "$code" -ne '0') { throw "Container cook failed: $code" }
+      - name: Collect diagnostics only
+        if: always()
+        run: |
+          $out = "$env:RUNNER_TEMP/container-diagnostics"
+          New-Item -ItemType Directory $out | Out-Null
+          docker cp argon-cook:C:/work/diagnostics/. $out
+          # A failed build may never have created the consumer container.
+          docker inspect argon-cook --format '{{json .State}}' > "$out/container-state.txt"
+          docker image inspect argonsdk-windows-cooker:probe --format '{{.Id}} {{.Os}} {{.Architecture}} {{.Size}}' > "$out/image.txt"
+          "Base: $env:WINDOWS_BASE_IMAGE" | Set-Content "$out/base.txt"
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: windows-container-diagnostics
+          path: ${{ runner.temp }}/container-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7

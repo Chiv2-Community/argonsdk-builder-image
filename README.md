@@ -6,6 +6,15 @@ Reusable ArgonSDK editor environment and Windows content-mod build scaffold.
 source-to-PAK baseline and explicit single-mod cook pass.
 Windows image builds and game-runtime compatibility remain unvalidated.
 
+`windows-container.yml` probes an actual process-isolated container on hosted
+`windows-2022`: build the pinned engine and workload-free SDK, bake their
+precompiled products into `Dockerfile.windows-cooker-probe`, then prepare external
+source, cook, and verify its PAK inside the image as `ContainerUser`. It does not
+compile the SDK again in the consumer, push an image, or upload licensed payloads.
+Only diagnostic logs and a result summary leave the runner. This runtime-image
+experiment is separate from the compiler-equipped `Dockerfile.windows` recipe;
+it does not prove fresh-runner registry consumption or game compatibility.
+
 The hosted Windows workflow also probes engine reuse: it archives the complete
 workload-free built tree locally, moves the original aside, restores at `D:\ue`,
 and validates the restored file hashes/timestamps before the SDK/mod build.

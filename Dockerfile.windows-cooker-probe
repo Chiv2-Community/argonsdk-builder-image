@@ -1,0 +1,22 @@
+# escape=`
+# Experimental runtime image from locally built, pinned engine/SDK products.
+ARG WINDOWS_BASE_IMAGE
+FROM ${WINDOWS_BASE_IMAGE}
+SHELL ["powershell", "-NoProfile", "-Command", "$ErrorActionPreference='Stop';"]
+COPY python/ C:/Python/
+COPY git/ C:/Git/
+ENV PATH="C:\Python;C:\Git\cmd;C:\Windows\system32;C:\Windows"
+COPY engine/ C:/ue/
+COPY sdk/ C:/argon-template/ArgonSDK/
+COPY builder/ C:/argon-builder/
+RUN $p = Start-Process C:/ue/Engine/Extras/Redist/en-us/UE4PrereqSetup_x64.exe -ArgumentList '/quiet','/norestart' -Wait -PassThru; if ($p.ExitCode -notin @(0,3010)) { throw "UE prerequisites failed: $($p.ExitCode)" }
+RUN New-Item -ItemType Directory C:/work | Out-Null; `
+    icacls C:\work /grant '*S-1-5-93-2-2:(OI)(CI)M'; if ($LASTEXITCODE -ne 0) { throw 'Workspace ACL failed' }; `
+    icacls C:\ue /grant '*S-1-5-93-2-2:(OI)(CI)M' /T /Q; if ($LASTEXITCODE -ne 0) { throw 'Engine runtime ACL failed' }
+# The image contains only trusted source trees; no host Git config is copied.
+ENV GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=*
+ENV UE_ROOT=C:/ue ARGON_SDK_ROOT=C:/argon-template/ArgonSDK
+WORKDIR C:/argon-builder
+USER ContainerUser
+RUN python scripts/engine_tools.py check --engine C:/ue --lock build-lock.json --platform Win64; if ($LASTEXITCODE -ne 0) { throw 'Image engine verification failed' }
+ENTRYPOINT ["python", "C:/argon-builder/scripts/windows_container_probe.py"]
