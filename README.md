@@ -15,6 +15,15 @@ Only diagnostic logs and a result summary leave the runner. This runtime-image
 experiment is separate from the compiler-equipped `Dockerfile.windows` recipe;
 it does not prove fresh-runner registry consumption or game compatibility.
 
+Container probe `43502118619` passed Docker service startup and the process-isolated
+Server Core preflight, but engine dependency setup failed: Epic's CDN returned
+403 for pack `60079f44b8b7b6c3f432fb78bff5b16074a33000` under
+`UnrealEngine-16138940`. The pinned manifest identifies its sole file as
+`Engine/Source/ThirdParty/Licenses/Avid_DNxHD_v2.5.2.37_License.pdf`
+(SHA-1 `6071ee317be416093d0f44670e1609a7f66a8063`). No retained local copy
+was found. The image build and container source cook have not run; restore the
+exact authorized dependency or resolve upstream access before retrying.
+
 The hosted Windows workflow also probes engine reuse: it archives the complete
 workload-free built tree locally, moves the original aside, restores at `D:\ue`,
 and validates the restored file hashes/timestamps before the SDK/mod build.
