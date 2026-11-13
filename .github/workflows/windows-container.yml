@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/windows-container.yml
       - scripts/start-windows-docker.ps1
+      - scripts/engine_tools.py
 permissions:
   contents: read
 concurrency:

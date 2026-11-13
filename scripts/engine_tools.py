@@ -8,6 +8,24 @@ import subprocess
 
 RECEIPT = '.builder-engine.json'
 BRANCH = '++UE4+Release-4.25Plus'
+GITDEPS_BEFORE = '49d0290e4c0a2a6811ead1676adc320cb5d8e5aa79a8dbe289b7927089db197c'
+GITDEPS_AFTER = '7b78b14574efd9bb1baacd029f3ea2758ece55575807d7420501d0a7b76952a7'
+GITDEPS_FIX = '1504eab50a454c39d51882f343f186d7e3f79050'
+
+
+def repaired_gitdeps(data):
+    """Reproduce Epic's exact three-line manifest fix, never a broad exclusion."""
+    normalized = data.replace(b'\r\n', b'\n')
+    if hashlib.sha256(normalized).hexdigest() != GITDEPS_BEFORE:
+        return data
+    obsolete = (b'Hash="6071ee317be416093d0f44670e1609a7f66a8063"',
+                b'Hash="60079f44b8b7b6c3f432fb78bff5b16074a33000"')
+    lines = normalized.splitlines(keepends=True)
+    retained = [line for line in lines if not any(value in line for value in obsolete)]
+    after = b''.join(retained)
+    if len(lines) - len(retained) != 3 or hashlib.sha256(after).hexdigest() != GITDEPS_AFTER:
+        raise ValueError('Dependency repair differs from the exact upstream manifest')
+    return after.replace(b'\n', b'\r\n') if b'\r\n' in data else after
 
 
 def digest(path):
@@ -84,18 +102,25 @@ def write_receipt(root, pin, platform, archive):
 
 
 def https_transport(root):
-    """Upgrade pinned CDN URLs in the isolated build tree; record every change."""
+    """Apply Epic's exact dependency fix and HTTPS URLs; record every change."""
     root = Path(root)
     paths = [root / 'Engine/Build/Commit.gitdeps.xml',
              root / 'Engine/Build/BatchFiles/Linux/SetupToolchain.sh']
     changes = []
     for path in paths:
         before = path.read_bytes()
-        after = before.replace(b'http://cdn.unrealengine.com', b'https://cdn.unrealengine.com')
+        repaired = repaired_gitdeps(before) if path.name == 'Commit.gitdeps.xml' else before
+        after = repaired.replace(b'http://cdn.unrealengine.com', b'https://cdn.unrealengine.com')
         if after != before:
-            changes.append({'path': path.relative_to(root).as_posix(),
-                            'before': hashlib.sha256(before).hexdigest(),
-                            'after': hashlib.sha256(after).hexdigest()})
+            change = {'path': path.relative_to(root).as_posix(),
+                      'before': hashlib.sha256(before).hexdigest(),
+                      'after': hashlib.sha256(after).hexdigest()}
+            if repaired != before:
+                change['upstream_dependency_fix'] = {
+                    'commit': GITDEPS_FIX,
+                    'normalized_manifest_sha256': GITDEPS_AFTER,
+                    'reason': 'Epic removed the unavailable Avid license dependency'}
+            changes.append(change)
             path.write_bytes(after)
     (root / '.builder-transport.json').write_text(json.dumps(changes, indent=2) + '\n', encoding='utf-8')
 

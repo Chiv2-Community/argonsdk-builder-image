@@ -21,8 +21,19 @@ Server Core preflight, but engine dependency setup failed: Epic's CDN returned
 `UnrealEngine-16138940`. The pinned manifest identifies its sole file as
 `Engine/Source/ThirdParty/Licenses/Avid_DNxHD_v2.5.2.37_License.pdf`
 (SHA-1 `6071ee317be416093d0f44670e1609a7f66a8063`). No retained local copy
-was found. The image build and container source cook have not run; restore the
-exact authorized dependency or resolve upstream access before retrying.
+was found. The image build and container source cook did not run.
+
+Epic's immediate successor commit
+[`1504eab`](https://github.com/EpicGames/UnrealEngine/commit/1504eab50a454c39d51882f343f186d7e3f79050)
+removes exactly this file, blob, and pack from the dependency manifest; its only
+source change is those three deleted lines. All 60,525 remaining dependency
+files retain their original hashes. `engine_tools.py https-transport` reproduces
+that exact change only for the known original manifest SHA-256, checks the
+result against Epic's fixed manifest SHA-256, and records the upstream commit
+and resulting hashes in build provenance before upgrading CDN URLs to HTTPS.
+The UE source commit remains pinned; no engine code or dependency binary changes.
+This is an explicit upstream dependency correction, not a licensing waiver or
+proof of container cooking. GitHub access is needed to inspect the upstream link.
 
 The hosted Windows workflow also probes engine reuse: it archives the complete
 workload-free built tree locally, moves the original aside, restores at `D:\ue`,
