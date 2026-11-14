@@ -1,11 +1,27 @@
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 
 @unittest.skipUnless(shutil.which('pwsh'), 'PowerShell required')
 class WindowsDockerTests(unittest.TestCase):
+    def test_prerequisite_installer_reports_and_checks_exit_codes(self):
+        script = Path(__file__).resolve().parents[1] / 'scripts/install-windows-cooker-runtime.ps1'
+        for code in (0, 3010, 1638, 1603):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
+                (Path(directory) / 'argon-ue-prerequisites.log').write_text('installer diagnostic fixture')
+                command = ("$ErrorActionPreference='Stop'; $env:TEMP='" + directory + "'; "
+                           "function Start-Process { [pscustomobject]@{ExitCode=" + str(code) + "} }; "
+                           "& '" + str(script) + "'")
+                result = subprocess.run(['pwsh', '-NoProfile', '-Command', command],
+                                        capture_output=True, text=True)
+                self.assertIn(f'installer exit code: {code}', result.stdout)
+                self.assertEqual(result.returncode == 0, code in (0, 3010, 1638), result.stderr)
+                if code == 1603:
+                    self.assertIn('installer diagnostic fixture', result.stdout)
+
     def run_probe(self, status='Running', daemon='windows', failures=0):
         script = Path(__file__).resolve().parents[1] / 'scripts/start-windows-docker.ps1'
         code = """

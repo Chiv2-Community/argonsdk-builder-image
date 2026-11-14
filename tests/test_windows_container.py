@@ -19,6 +19,13 @@ class WindowsContainerTests(unittest.TestCase):
         path = next(line for line in recipe.splitlines() if line.startswith('ENV PATH='))
         self.assertIn(r'C:\Windows\System32\WindowsPowerShell\v1.0', path)
 
+    def test_prerequisite_script_runs_before_large_engine_layer(self):
+        recipe = (Path(__file__).resolve().parents[1] / 'Dockerfile.windows-cooker-probe').read_text()
+        run = next(line for line in recipe.splitlines() if line.startswith('RUN ['))
+        args = json.loads(run.removeprefix('RUN '))
+        self.assertEqual(args[-2:], ['-File', r'C:\image-prerequisites\install-windows-cooker-runtime.ps1'])
+        self.assertLess(recipe.index(run), recipe.index('COPY engine/'))
+
     def test_failed_stage_stops_and_preserves_diagnostics(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

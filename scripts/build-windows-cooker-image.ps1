@@ -16,6 +16,9 @@ function Copy-Tree([string]$Source, [string]$Target, [string[]]$Excluded = @()) 
     if ($LASTEXITCODE -gt 7) { throw "Image staging failed: $Source" }
 }
 New-Item -ItemType Directory $Context | Out-Null
+New-Item -ItemType Directory "$Context/prerequisites" | Out-Null
+Copy-Item "$Engine/Engine/Extras/Redist/en-us/UE4PrereqSetup_x64.exe" "$Context/prerequisites/"
+Copy-Item "$PSScriptRoot/install-windows-cooker-runtime.ps1" "$Context/prerequisites/"
 Copy-Tree $Engine "$Context/engine" @('.git', 'Intermediate', 'Saved', 'DerivedDataCache')
 Copy-Tree $Sdk "$Context/sdk" @('Intermediate', 'Saved', 'DerivedDataCache')
 $pythonRoot = python -c 'import sys; print(sys.base_prefix)'

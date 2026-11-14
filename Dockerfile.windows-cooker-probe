@@ -3,13 +3,14 @@
 ARG WINDOWS_BASE_IMAGE
 FROM ${WINDOWS_BASE_IMAGE}
 SHELL ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-NoProfile", "-Command", "$ErrorActionPreference='Stop';"]
+COPY prerequisites/ C:/image-prerequisites/
+RUN ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-NoProfile", "-File", "C:\\image-prerequisites\\install-windows-cooker-runtime.ps1"]
 COPY python/ C:/Python/
 COPY git/ C:/Git/
 ENV PATH="C:\Python;C:\Git\cmd;C:\Windows\system32;C:\Windows;C:\Windows\System32\WindowsPowerShell\v1.0"
 COPY engine/ C:/ue/
 COPY sdk/ C:/argon-template/ArgonSDK/
 COPY builder/ C:/argon-builder/
-RUN $p = Start-Process C:/ue/Engine/Extras/Redist/en-us/UE4PrereqSetup_x64.exe -ArgumentList '/quiet','/norestart' -Wait -PassThru; if ($p.ExitCode -notin @(0,3010)) { throw "UE prerequisites failed: $($p.ExitCode)" }
 RUN New-Item -ItemType Directory C:/work | Out-Null; `
     icacls C:\work /grant '*S-1-5-93-2-2:(OI)(CI)M'; if ($LASTEXITCODE -ne 0) { throw 'Workspace ACL failed' }; `
     icacls C:\ue /grant '*S-1-5-93-2-2:(OI)(CI)M' /T /Q; if ($LASTEXITCODE -ne 0) { throw 'Engine runtime ACL failed' }
