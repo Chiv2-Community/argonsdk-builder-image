@@ -2,10 +2,10 @@
 # Experimental runtime image from locally built, pinned engine/SDK products.
 ARG WINDOWS_BASE_IMAGE
 FROM ${WINDOWS_BASE_IMAGE}
-SHELL ["powershell", "-NoProfile", "-Command", "$ErrorActionPreference='Stop';"]
+SHELL ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-NoProfile", "-Command", "$ErrorActionPreference='Stop';"]
 COPY python/ C:/Python/
 COPY git/ C:/Git/
-ENV PATH="C:\Python;C:\Git\cmd;C:\Windows\system32;C:\Windows"
+ENV PATH="C:\Python;C:\Git\cmd;C:\Windows\system32;C:\Windows;C:\Windows\System32\WindowsPowerShell\v1.0"
 COPY engine/ C:/ue/
 COPY sdk/ C:/argon-template/ArgonSDK/
 COPY builder/ C:/argon-builder/

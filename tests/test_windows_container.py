@@ -11,6 +11,14 @@ import windows_container_probe as probe
 
 
 class WindowsContainerTests(unittest.TestCase):
+    def test_runtime_shell_does_not_depend_on_replaced_path(self):
+        recipe = (Path(__file__).resolve().parents[1] / 'Dockerfile.windows-cooker-probe').read_text()
+        shell = next(line for line in recipe.splitlines() if line.startswith('SHELL '))
+        args = json.loads(shell.removeprefix('SHELL '))
+        self.assertEqual(args[0], r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe')
+        path = next(line for line in recipe.splitlines() if line.startswith('ENV PATH='))
+        self.assertIn(r'C:\Windows\System32\WindowsPowerShell\v1.0', path)
+
     def test_failed_stage_stops_and_preserves_diagnostics(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
